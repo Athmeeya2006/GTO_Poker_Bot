@@ -263,30 +263,40 @@ class TradingSignalGenerator:
 
         Returns dict with:
         - fair_spread: what the spread SHOULD be at this bluff frequency
-        - nash_spread: spread at Nash equilibrium
-        - edge: deviation from Nash spread (trading opportunity)
+        - nash_spread: spread at Nash equilibrium (α = 1/3)
+        - edge: deviation from Nash (trading opportunity)
         - signal: BUY_SPREAD / SELL_SPREAD / HOLD
         - position_size: suggested size (relative units)
+
+        NOTE: Kuhn Poker has a FAMILY of Nash equilibria with α ∈ [0, 1/3].
+        Any bluff frequency in this range is Nash-optimal, so the signal
+        is HOLD for all α in [0, 1/3], not just α = 1/3.
         """
         nash_alpha = 1.0 / 3.0
         nash_spread = self.gm.spread_from_bluff_frequency(nash_alpha)
         fair_spread = self.gm.spread_from_bluff_frequency(bluff_freq)
 
-        edge = fair_spread - nash_spread
+        # Kuhn Nash equilibrium allows any α ∈ [0, 1/3]. All such α are
+        # equilibrium strategies with zero exploitability, so there is
+        # no trading edge when the observed bluff frequency is in this range.
+        nash_range_tolerance = 0.01  # small tolerance for numerical noise
+        in_nash_range = -nash_range_tolerance <= bluff_freq <= nash_alpha + nash_range_tolerance
 
-        # Signal logic
-        if abs(edge) < 0.01:
+        if in_nash_range:
             signal = "HOLD"
             confidence = 0.0
-        elif edge > 0:
-            signal = "BUY_SPREAD"  # spread should be wider → sell at ask, buy at bid
-            confidence = min(edge / nash_spread, 1.0)
+            edge = 0.0
         else:
-            signal = "SELL_SPREAD"  # spread should be narrower → provide liquidity
-            confidence = min(abs(edge) / nash_spread, 1.0)
+            edge = fair_spread - nash_spread
+            if edge > 0:
+                signal = "BUY_SPREAD"  # spread should be wider → sell at ask, buy at bid
+                confidence = min(edge / nash_spread, 1.0)
+            else:
+                signal = "SELL_SPREAD"  # spread should be narrower → provide liquidity
+                confidence = min(abs(edge) / nash_spread, 1.0)
 
-        # Position sizing (Kelly-inspired)
-        position_size = self.gm.optimal_position_size(bluff_freq, bankroll=1000.0)
+        # Position sizing (Kelly-inspired) — zero when in Nash range
+        position_size = 0.0 if in_nash_range else self.gm.optimal_position_size(bluff_freq, bankroll=1000.0)
 
         return {
             "fair_spread": fair_spread,
