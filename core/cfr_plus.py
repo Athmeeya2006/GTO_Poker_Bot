@@ -13,6 +13,13 @@ class CFRPlus:
     1. Regrets are floored at 0 each update (no negative accumulation).
     2. Average strategy uses LINEAR weighting: iteration t has weight t.
        This dramatically accelerates convergence.
+
+    Note on linear weighting:
+      self.t is incremented once per iteration and shared across all deal
+      permutations. This is correct: the weight applies per iteration, not
+      per tree traversal. All standard implementations (OpenSpiel, Pluribus,
+      etc.) use the same convention. Each iteration covers all deals, so
+      the iteration counter t properly indexes the averaging weight.
     """
     def __init__(self):
         self.regrets      = defaultdict(lambda: defaultdict(float))

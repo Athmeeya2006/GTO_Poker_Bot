@@ -1,20 +1,27 @@
-# core/mccfr.py  - with baseline subtraction variance reduction
+# core/mccfr.py  - External Sampling MCCFR
 """
-External Sampling MCCFR + Baseline Subtraction.
+External Sampling Monte Carlo CFR.
 
-The variance reduction technique:
-  Standard MCCFR uses sampled counterfactual values v̂(a).
-  These are unbiased but high variance - each sample gives a noisy estimate.
+External sampling traverses ALL actions for the updating player, but
+SAMPLES a single action for the opponent (proportional to the opponent's
+current strategy). This gives an unbiased estimate of counterfactual values
+with lower per-iteration cost than vanilla CFR.
 
-  Baseline subtraction: instead of using v̂(a) directly, use (v̂(a) - b(I))
-  where b(I) is a baseline - a running estimate of the expected value at I.
+Key properties:
+  - The updating player explores all actions → exact counterfactual values
+    for their own info sets (no variance there).
+  - The opponent's action is sampled → introduces variance, but the
+    estimator is unbiased because sampling from σ_{-i} and observing
+    the raw payoff gives E[v] = Σ σ(a) × v(a).
+  - No importance weighting is needed at opponent sample nodes in standard
+    external sampling MCCFR (Lanctot et al. 2009).
 
-  Since E[v̂(a) - b(I)] = E[v̂(a)] - b(I), and if b(I) ≈ E[v̂(a)],
-  the variance drops dramatically while the estimator stays UNBIASED.
-
-  This is identical to the control variate technique in Monte Carlo integration,
-  and to baseline subtraction in policy gradient RL (REINFORCE with baseline).
-  Jane Street uses variance reduction in every Monte Carlo pricing model they run.
+Baseline subtraction (variance reduction):
+  At opponent sample nodes, we maintain a running mean of observed values
+  as a baseline b(I). The variance-reduced estimator is:
+    v̂ = (v_sampled - b) + b = v_sampled  (for raw external sampling)
+  For the updating player's regret, the baseline cancels in full traversal.
+  We track baselines purely for diagnostics and future partial-traversal use.
 """
 import random
 from collections import defaultdict
@@ -30,9 +37,11 @@ class ExternalSamplingMCCFR:
         self.iterations   = 0
 
         # Baseline: running mean of node values per information set
-        # Used for variance reduction
-        self.baseline       = defaultdict(float)   # b(I) = running mean EV
-        self.baseline_count = defaultdict(int)      # how many times we've seen I
+        # Tracked for diagnostics; in standard external sampling with
+        # full traversal for the updating player, the baseline cancels
+        # algebraically in the regret update.
+        self.baseline       = defaultdict(float)
+        self.baseline_count = defaultdict(int)
 
     # ------------------------------------------------------------------ #
     #  Helpers
@@ -67,10 +76,17 @@ class ExternalSamplingMCCFR:
     #  Core traversal
     # ------------------------------------------------------------------ #
 
-    def _traverse(self, cards, history, updating_player):
+    def _traverse(self, cards, history, updating_player, pi_i=1.0):
         """
-        External sampling traversal with baseline subtraction.
-        Returns: expected payoff for updating_player.
+        External sampling traversal.
+
+        Args:
+            cards: the dealt cards for this sample
+            history: action history string
+            updating_player: which player's regrets we're updating (0 or 1)
+            pi_i: reach probability of the updating player to this node
+
+        Returns: expected payoff for updating_player from this node.
         """
         if is_terminal(history):
             payoff = get_payoff(history, cards, 0)
@@ -82,66 +98,47 @@ class ExternalSamplingMCCFR:
         sigma   = self._regret_match(i_set, actions)
 
         if player == updating_player:
-            # Traverse ALL actions for updating player
+            # ── UPDATING PLAYER: traverse ALL actions ──────────────────
+            # Accumulate reach-weighted strategy for average computation.
+            # The weight is the updating player's reach probability pi_i,
+            # matching vanilla CFR's strategy_sum[i][a] += reach_i * σ(a).
             for a in actions:
-                self.strategy_sum[i_set][a] += sigma[a]
+                self.strategy_sum[i_set][a] += pi_i * sigma[a]
 
-            # Compute action values
-            v = {a: self._traverse(cards, history + a, updating_player)
+            # Compute action values by traversing all actions
+            v = {a: self._traverse(
+                     cards, history + a, updating_player,
+                     pi_i * sigma[a])
                  for a in actions}
 
             node_v = sum(sigma[a] * v[a] for a in actions)
 
-            # ── BASELINE SUBTRACTION ──────────────────────────────────
-            # Get current baseline for this info set
-            b = self.baseline[i_set]    # 0.0 initially, converges to E[node_v]
-
-            # Update regrets using BASELINE-SUBTRACTED values
-            # Standard:   regret(a) += v(a) - node_v
-            # With baseline: regret(a) += (v(a) - b) - (node_v - b)
-            #                           = v(a) - node_v     ← same!
-            # BUT for SAMPLED nodes (when we later extend to partial traversal):
-            # regret(a) += (v̂(a) - b) - (node_v - b)
-            # The baseline cancels in expectation but REDUCES VARIANCE
-            # because (v̂(a) - b) has lower variance than v̂(a) alone
-            # when b ≈ E[v̂(a)].
-            #
-            # For full traversal (Kuhn/Leduc), this is equivalent to standard CFR.
-            # The variance reduction becomes critical for larger games.
+            # Update regrets: standard CFR regret = v(a) - node_v
             for a in actions:
-                self.regrets[i_set][a] += (v[a] - b) - (node_v - b)
+                self.regrets[i_set][a] += v[a] - node_v
 
-            # Update baseline with observed node value
+            # Track baseline for diagnostics
             self._update_baseline(i_set, node_v)
 
             return node_v
 
         else:
-            # Sample ONE action for opponent
+            # ── OPPONENT: sample ONE action from their strategy ────────
+            # Standard external sampling: sample from σ_{-i}, return raw
+            # value. No importance weighting needed because:
+            #   E[v_sampled] = Σ σ(a) × v(a) = true expected value
             probs  = [sigma[a] for a in actions]
             chosen = random.choices(actions, weights=probs, k=1)[0]
 
-            value = self._traverse(cards, history + chosen, updating_player)
+            value = self._traverse(
+                cards, history + chosen, updating_player, pi_i
+            )
 
-            # ── BASELINE SUBTRACTION FOR SAMPLED OPPONENT NODES ──────
-            # When we sample the opponent's action, we get a noisy estimate
-            # of the true expected value. Subtract the baseline to reduce
-            # the variance of the regret update at the PARENT node.
-            #
-            # The importance-weighted value is: value / sigma[chosen]
-            # With baseline: (value - b) / sigma[chosen] + b
-            # This is an unbiased estimator with lower variance when b ≈ E[value].
-            b = self.baseline[i_set]
+            # Track baseline for diagnostics
             self._update_baseline(i_set, value)
 
-            # Return baseline-corrected importance-weighted estimate
-            # Only apply correction if we have enough baseline samples
-            if self.baseline_count[i_set] > 5:
-                corrected = (value - b) / sigma[chosen] + b
-            else:
-                corrected = value   # use raw value until baseline is stable
-
-            return corrected
+            # Return raw value — no importance weighting
+            return value
 
     # ------------------------------------------------------------------ #
     #  Training
@@ -151,8 +148,9 @@ class ExternalSamplingMCCFR:
         for _ in range(iterations):
             self.iterations += 1
             cards = random.sample(CARDS, 2)
-            self._traverse(cards, "", 0)
-            self._traverse(cards, "", 1)
+            # Update both players' regrets on the same deal
+            self._traverse(cards, "", 0, pi_i=1.0)
+            self._traverse(cards, "", 1, pi_i=1.0)
 
     def get_full_strategy(self):
         result = {}
@@ -165,7 +163,7 @@ class ExternalSamplingMCCFR:
 
     def variance_reduction_stats(self):
         """
-        Print stats showing how much variance the baseline is absorbing.
+        Print stats showing baseline values and calibration.
         For each info set, shows the baseline value and how many times
         it has been updated - proxy for how well-calibrated the baseline is.
         """
