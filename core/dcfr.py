@@ -59,10 +59,8 @@ class DCFR:
         actions = get_actions(history)
         i_set = get_info_set(history, cards, player)
 
-        self._discount_regrets(i_set, actions)
         sigma = self._regret_match(i_set, actions)
 
-        self._discount_strategy_sum(i_set, actions)
         reach_i = p0 if player == 0 else p1
         for a in actions:
             self.strategy_sum[i_set][a] += reach_i * sigma[a]
@@ -86,6 +84,15 @@ class DCFR:
     def train(self, iterations: int):
         for _ in range(iterations):
             self.t += 1
+
+            # Apply discounting ONCE per iteration (before tree traversals)
+            for i_set in list(self.regrets.keys()):
+                actions = list(self.regrets[i_set].keys())
+                self._discount_regrets(i_set, actions)
+            for i_set in list(self.strategy_sum.keys()):
+                actions = list(self.strategy_sum[i_set].keys())
+                self._discount_strategy_sum(i_set, actions)
+
             for cards in permutations(CARDS, 2):
                 self._cfr(list(cards), "", 1.0, 1.0)
 

@@ -42,16 +42,8 @@ def get_actions(history):
 
 def current_player(history):
     """Whose turn is it? 0=Player1, 1=Player2"""
-    if history in ["", "b", "cb"]:
-        return 0 if history == "" or history == "cb" else 1
-    if history == "c":
-        return 1
-    # More explicit:
-    if history == "":   return 0
-    if history == "c":  return 1
-    if history == "b":  return 1
-    if history == "cb": return 0
-    return -1  # terminal
+    _PLAYER = {"": 0, "c": 1, "b": 1, "cb": 0}
+    return _PLAYER.get(history, -1)  # -1 for terminal states
 
 def get_payoff(history, cards, player):
     """

@@ -187,11 +187,8 @@ def _player_contribution(history, player):
                 if acting_player == player:
                     # Pay any outstanding bet + add own bet
                     contrib += pending_bet + bet_size
-                pending_bet = bet_size if acting_player != player else bet_size
-                if acting_player != player:
-                    pending_bet = bet_size
-                else:
-                    pending_bet = bet_size
+                # After a bet/raise, the OTHER player owes bet_size
+                pending_bet = bet_size
             elif ch == "c":
                 if acting_player == player and pending_bet > 0:
                     contrib += pending_bet
