@@ -1,6 +1,6 @@
 # trading/glosten_milgrom.py
 """
-Glosten-Milgrom (1985) Informed Trading Model — Formal Isomorphism with Kuhn Poker
+Glosten-Milgrom (1985) toy informed-trading mapping to Kuhn Poker.
 
 THE MAPPING (exact correspondence):
 
@@ -15,15 +15,10 @@ THE MAPPING (exact correspondence):
   Folding = refusing             | Market maker widens spread / refuses
   Nash equilibrium strategy      | Zero-profit bid-ask spread
 
-THE KEY RESULT:
-  In Kuhn Poker, Player 1 bluffs with Jack with probability α = 1/3.
-  In the GM model, this corresponds to: the market maker quotes a spread
-  wide enough that they break even against informed flow.
-
-  The optimal spread in GM = 2 × [P(informed | order submitted)] × (V_H - V_L)
-  where P(informed | order) is derived from the bluff frequency via Bayes' theorem.
-
-  Your CFR solution to Kuhn Poker IS the solution to the GM model.
+This module is an educational analogy:
+  - it compares posterior-informed probabilities between Kuhn and a toy GM setup,
+  - and checks spread consistency under those assumptions.
+It is not a calibrated empirical market model.
 """
 import sys
 from pathlib import Path
@@ -127,6 +122,14 @@ class GlostenMilgromModel:
         alpha = max(0.0, min(bluff_freq, 1.0))
         return 1.0 / (1.0 + 2.0 * alpha)
 
+    def implied_bluff_frequency_from_mu(self):
+        """
+        Inverse mapping under the same toy assumptions:
+          alpha = (1 - mu) / (2 * mu)
+        """
+        mu = max(min(self.mu, 1.0), 1e-10)
+        return (1.0 - mu) / (2.0 * mu)
+
     def spread_from_bluff_frequency(self, bluff_freq):
         """
         THE KEY CONNECTION:
@@ -156,14 +159,15 @@ class GlostenMilgromModel:
 
     def verify_isomorphism(self, cfr_bluff_freq):
         """
-        Show that the CFR-computed bluff frequency gives the same spread
-        as the GM analytical solution. This is the proof.
+        Check consistency between:
+          1) spread implied by the toy GM model, and
+          2) spread implied by the Kuhn bluff-frequency mapping.
         """
         gm_spread     = self.bid_ask_spread()
         poker_spread  = self.spread_from_bluff_frequency(cfr_bluff_freq)
 
         print("=" * 55)
-        print("  Glosten-Milgrom / Kuhn Poker Isomorphism Proof")
+        print("  Glosten-Milgrom / Kuhn Poker Mapping Check")
         print("=" * 55)
         print(f"\n  Asset values:  V_L={self.V_L}, V_H={self.V_H}")
         print(f"  Informed fraction μ = {self.mu:.4f}")
@@ -176,10 +180,9 @@ class GlostenMilgromModel:
         print(f"  Poker-derived spread:        {poker_spread:.4f}")
         print(f"\n  |GM spread - Poker spread| = {abs(gm_spread - poker_spread):.6f}")
         print("\n  INTERPRETATION:")
-        print("  The CFR Nash equilibrium bluff frequency corresponds exactly")
-        print("  to the adverse selection cost in the GM model.")
-        print("  Optimal bluffing frequency = optimal market maker spread.")
-        print("  GTO poker strategy = zero-profit market making condition.")
+        print("  Under this toy setup, Kuhn bluff frequency determines")
+        print("  posterior informed-trader probability and implied spread.")
+        print("  This is a conceptual correspondence, not market calibration.")
         print("=" * 55)
 
         return {

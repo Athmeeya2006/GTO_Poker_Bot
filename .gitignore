@@ -12,6 +12,8 @@ __pycache__/
 
 # Local plotting/cache artifacts
 .mplconfig/
+analysis/*.png
+analysis/*.csv
 
 # OS/editor noise
 .DS_Store

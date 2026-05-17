@@ -2,6 +2,8 @@
 import os
 import sys
 from pathlib import Path
+import csv
+import math
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -15,6 +17,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 from core.cfr import VanillaCFR
 from core.cfr_plus import CFRPlus
+from core.mccfr import ExternalSamplingMCCFR
+from core.dcfr import DCFR
 from core.exploitability import compute_exploitability
 
 def generate_convergence_plot(max_iters=5000, sample_every=100):
@@ -79,6 +83,90 @@ def generate_convergence_plot(max_iters=5000, sample_every=100):
     if matplotlib.get_backend().lower() != "agg":
         plt.show()
     print("Saved: analysis/convergence_kuhn.png")
+
+
+def _log_slope(xs, ys):
+    """
+    Compute local slope of log(y) vs log(x) using adjacent points.
+    Returns list with first value as None.
+    """
+    slopes = [None]
+    for i in range(1, len(xs)):
+        x0, x1 = xs[i - 1], xs[i]
+        y0, y1 = max(ys[i - 1], 1e-12), max(ys[i], 1e-12)
+        slopes.append((math.log(y1) - math.log(y0)) /
+                      (math.log(x1) - math.log(x0)))
+    return slopes
+
+
+def generate_convergence_table(max_iters=3000, sample_every=100, mccfr_scale=6,
+                               output_csv="analysis/convergence_metrics.csv"):
+    """
+    Generate a quantitative convergence table for Vanilla CFR, CFR+, DCFR, and MCCFR.
+    Saves CSV with exploitability and local log-log slopes.
+    """
+    checkpoints = list(range(sample_every, max_iters + 1, sample_every))
+    vanilla = VanillaCFR()
+    cfrplus = CFRPlus()
+    dcfr = DCFR()
+    mccfr = ExternalSamplingMCCFR()
+
+    metrics = {
+        "vanilla": [],
+        "cfr_plus": [],
+        "dcfr": [],
+        "mccfr": [],
+    }
+
+    for _ in checkpoints:
+        vanilla.train(sample_every)
+        cfrplus.train(sample_every)
+        dcfr.train(sample_every)
+        mccfr.train(sample_every * mccfr_scale)
+
+        metrics["vanilla"].append(compute_exploitability(vanilla.get_full_strategy()))
+        metrics["cfr_plus"].append(compute_exploitability(cfrplus.get_full_strategy()))
+        metrics["dcfr"].append(compute_exploitability(dcfr.get_full_strategy()))
+        metrics["mccfr"].append(compute_exploitability(mccfr.get_full_strategy()))
+
+    slopes = {k: _log_slope(checkpoints, v) for k, v in metrics.items()}
+
+    out_path = Path(output_csv)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "iteration",
+            "vanilla_exploitability",
+            "cfr_plus_exploitability",
+            "dcfr_exploitability",
+            "mccfr_exploitability",
+            "vanilla_loglog_slope",
+            "cfr_plus_loglog_slope",
+            "dcfr_loglog_slope",
+            "mccfr_loglog_slope",
+        ])
+        for i, t in enumerate(checkpoints):
+            writer.writerow([
+                t,
+                metrics["vanilla"][i],
+                metrics["cfr_plus"][i],
+                metrics["dcfr"][i],
+                metrics["mccfr"][i],
+                slopes["vanilla"][i],
+                slopes["cfr_plus"][i],
+                slopes["dcfr"][i],
+                slopes["mccfr"][i],
+            ])
+
+    final = len(checkpoints) - 1
+    print("\n=== Quantitative Convergence Summary ===")
+    print(f"Final @ {checkpoints[final]} iterations:")
+    print(f"  Vanilla: {metrics['vanilla'][final]:.6f}")
+    print(f"  CFR+   : {metrics['cfr_plus'][final]:.6f}")
+    print(f"  DCFR   : {metrics['dcfr'][final]:.6f}")
+    print(f"  MCCFR  : {metrics['mccfr'][final]:.6f}")
+    print(f"Saved table: {output_csv}")
 
 def generate_threeway_comparison(max_iters=5000, sample_every=50):
     """Vanilla CFR vs CFR+ vs MCCFR on Kuhn Poker."""

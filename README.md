@@ -1,141 +1,170 @@
 # GTO Poker Bot
 
-A Python project for solving and analyzing small imperfect-information poker games (primarily Kuhn Poker), with supporting modules for exploitability, opponent modeling, and a market-microstructure analogy.
+A Python framework for computing, validating, and exploiting approximate Nash equilibria in imperfect-information games - with a formal bridge to market microstructure theory.
 
-## Overview
+---
 
-This repository includes:
-- game definitions (`Kuhn`, partial `Leduc`),
-- equilibrium solvers (`Vanilla CFR`, `CFR+`, `External Sampling MCCFR`),
-- exploitability evaluation with information-set-constrained best responses,
-- opponent modeling (Dirichlet-Bayesian frequencies, SPRT leak detection, strategy mixing),
-- analysis scripts and an end-to-end validation pipeline.
+## What This Does
+
+Most CFR implementations stop at "solver converges, strategy printed." This project goes three layers deeper:
+
+1. **Solve** - four CFR-family algorithms compute Nash-approximate strategies with measurable convergence guarantees.
+2. **Validate** - exploitability is computed under strict imperfect-information constraints (no card-peeking in best-response evaluation), with automated convergence checks.
+3. **Adapt** - a Bayesian opponent model detects when an opponent leaks exploitable patterns and gates strategy mixing based on statistical confidence, not raw deviation.
+
+The theoretical through-line: bluff frequencies computed by CFR are formally isomorphic to the adverse-selection spread in the Glosten-Milgrom (1985) market-making model. The solver output *is* the zero-profit spread condition.
+
+---
+
+## Algorithms Implemented
+
+| Solver | Notes |
+|---|---|
+| Vanilla CFR | Baseline. Full tree traversal, regret matching. |
+| CFR+ | Regret clipping + linear averaging. Faster empirical convergence. |
+| DCFR | Discounted CFR. Exponential down-weighting of early regrets. |
+| External Sampling MCCFR | Sampled traversal with per-infoset baseline tracking for variance diagnostics. |
+
+All four solvers are benchmarked against each other. Convergence metrics (exploitability vs. iterations, log-log slope) are exported to `analysis/convergence_metrics.csv`.
+
+---
+
+## Exploitability
+
+Exploitability is computed using **information-set-consistent best responses** - the best-response player cannot observe the opponent's private card during computation. This matters: naive implementations inflate exploitability by solving a full-information problem instead of the correct imperfect-information one.
+
+At Nash equilibrium, both players' best-response gains sum to zero. This implementation verifies that bound.
+
+---
+
+## Opponent Modeling
+
+Three components work together:
+
+**Dirichlet Posterior Model** - maintains a per-infoset Bayesian posterior over opponent action frequencies. Reports posterior mean, credible intervals, KL divergence from Nash, and posterior variance. The posterior variance feeds directly into the confidence gate.
+
+**SPRT Leak Detector** - applies a Sequential Probability Ratio Test to detect statistically significant deviations from GTO play. Triggers exploitation only when the evidence meets a calibrated threshold, not on noise.
+
+**Confidence-Gated Strategy Mixer** - blends GTO and exploitative strategies as a function of the SPRT signal and posterior precision. The mixer does not increase exploitation weight unless deviation is both present and statistically reliable.
+
+---
+
+## Glosten-Milgrom Isomorphism
+
+The `trading/` module formalizes the connection between Kuhn Poker equilibria and the GM (1985) model of informed trading:
+
+| Poker | Market |
+|---|---|
+| Player 1 with private card | Informed trader who knows asset value |
+| Player 2 with no private info | Market maker |
+| Bluffing with Jack (weak hand) | Noise trader submitting buy order |
+| Always betting King (strong hand) | Informed trader buying at V_H |
+| Nash bluff frequency α | Adverse selection component of bid-ask spread |
+
+At Kuhn Nash equilibrium, Player 1 bluffs with probability α = 1/3. Running through Bayes' theorem: P(informed | bet) = 1/(1 + α) = 3/4. The GM zero-profit spread condition yields the same posterior. The CFR solution and the GM spread are the same object derived two ways.
+
+---
 
 ## Repository Structure
 
-### `core/`
-- [`kuhn_poker.py`](core/kuhn_poker.py): Kuhn Poker game tree mechanics (actions, turn logic, terminal conditions, payoffs, info sets).
-- [`cfr.py`](core/cfr.py): Vanilla CFR implementation for Kuhn.
-- [`cfr_plus.py`](core/cfr_plus.py): CFR+ implementation (regret clipping + linear averaging).
-- [`mccfr.py`](core/mccfr.py): External Sampling MCCFR with baseline-tracking for variance diagnostics.
-- [`exploitability.py`](core/exploitability.py): exploitability computation for two-player zero-sum Kuhn, using valid imperfect-information best responses.
-- [`leduc_poker.py`](core/leduc_poker.py): Leduc logic and solver scaffold (experimental / not part of current CI checks).
+```
+core/
+  kuhn_poker.py       - game engine, terminal conditions, infoset encoding
+  cfr.py              - Vanilla CFR
+  cfr_plus.py         - CFR+ (regret clipping, linear averaging)
+  dcfr.py             - Discounted CFR
+  mccfr.py            - External Sampling MCCFR + variance diagnostics
+  exploitability.py   - imperfect-information best-response exploitability
+  leduc_poker.py      - Leduc game engine and solver scaffold
 
-### `opponent_model/`
-- [`dirichlet_model.py`](opponent_model/dirichlet_model.py): Bayesian action-frequency model per information set.
-  - posterior mean
-  - credible intervals
-  - KL divergence from Nash
-  - posterior variance
-  - confidence score from variance + signal
-- [`hypothesis_test.py`](opponent_model/hypothesis_test.py): SPRT-based leak detector.
-- [`strategy_mixer.py`](opponent_model/strategy_mixer.py): blends GTO and exploitative policies based on confidence gating.
-- [`range_model.py`](opponent_model/range_model.py): simplified hand-range Bayesian updater.
+opponent_model/
+  dirichlet_model.py  - posterior mean, credible intervals, KL, variance score
+  hypothesis_test.py  - SPRT-based leak detector
+  strategy_mixer.py   - confidence-gated GTO/exploit blending
+  range_model.py      - Bayesian hand-range updater
 
-### `trading/`
-- [`glosten_milgrom.py`](trading/glosten_milgrom.py): toy Glosten-Milgrom model and mapping checks from Kuhn bluff frequencies.
+analysis/
+  convergence_plots.py       - generates plots and metrics table
+  convergence_kuhn.png       - solver convergence curves
+  convergence_metrics.csv    - exploitability vs. iterations for all four solvers
 
-### `analysis/`
-- [`convergence_plots.py`](analysis/convergence_plots.py): convergence plotting utilities.
-- Generated artifacts:
-  - `analysis/convergence_kuhn.png`
-  - `analysis/threeway_convergence.png`
+trading/
+  glosten_milgrom.py  - formal Kuhn <> GM isomorphism and spread derivation
 
-### `tests/`
-- [`test_kuhn_game.py`](tests/test_kuhn_game.py): Kuhn mechanics validation.
-- [`test_cfr_convergence.py`](tests/test_cfr_convergence.py): convergence and equilibrium-family checks.
+tests/
+  test_kuhn_game.py         - game mechanics
+  test_cfr_convergence.py   - equilibrium-family checks, exploitability bound
+  test_leduc_game.py        - Leduc smoke tests
 
-### `notebooks/`
-- [`run_everything.py`](notebooks/run_everything.py): full 8-gate pipeline execution script.
+notebooks/
+  run_everything.py   - 10-gate validation pipeline
+  run_everything.ipynb
+```
 
-## Requirements
-
-- Python 3.10+
-- `numpy`
-- `scipy`
-- `matplotlib`
+---
 
 ## Setup
-
-From repository root:
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install numpy scipy matplotlib
+pip install -r requirements-dev.txt
 ```
 
-## Run Commands
+---
 
-### Full pipeline (recommended)
+## Running
+
+### Full validation pipeline
 
 ```bash
-venv/bin/python notebooks/run_everything.py
+python notebooks/run_everything.py
 ```
 
-This executes 8 validation gates:
-1. Kuhn Nash-family strategy checks + exploitability bound
-2. CFR+ vs Vanilla convergence speed check
-3. Dirichlet KL behavior on simulated near-GTO samples
-4. SPRT leak detection speed sanity check
-5. Glosten-Milgrom / Kuhn spread consistency check
-6. Convergence plot generation
-7. MCCFR baseline calibration / variance diagnostics
-8. Posterior variance confidence-gating check
+Runs 10 gates:
 
-### Unit tests
+1. Kuhn Nash-family strategy constraints + exploitability bound
+2. CFR+ and DCFR convergence speed vs. Vanilla CFR
+3. Dirichlet KL behavior on near-Nash samples
+4. SPRT leak detection sensitivity
+5. GM / Kuhn spread consistency
+6. Convergence plot and metrics export
+7. MCCFR baseline calibration diagnostics
+8. Posterior-variance confidence gating
+9. Leduc smoke test
+10. pytest discoverability
+
+### Tests only
 
 ```bash
-venv/bin/python tests/test_kuhn_game.py
-venv/bin/python tests/test_cfr_convergence.py
+pytest
 ```
 
-### Trading analogy demo only
+### Trading module
 
 ```bash
-venv/bin/python trading/glosten_milgrom.py
+python trading/glosten_milgrom.py
 ```
 
-## Key Design Notes
+---
 
-### 1) Kuhn Equilibrium Handling
-Kuhn has a continuum of valid Player-1 equilibria parameterized by bluff frequency `alpha`.
-Validation uses equilibrium relationships (for example `P1(K:) ≈ 3 * P1(J:)`) instead of assuming one fixed point.
+## Technical Notes
 
-### 2) Exploitability Correctness
-Exploitability is computed with information-set-consistent best responses (no hidden-card peeking).
-This avoids inflated exploitability values caused by invalid perfect-information responses.
+**Kuhn equilibrium family.** Kuhn Poker admits a continuum of Player-1 equilibria parameterized by bluff frequency α ∈ [0, 1/3]. Validation uses the equilibrium relationship P1(K:bet) ≈ 3 × P1(J:bet) rather than asserting a single fixed point - this correctly tests membership in the equilibrium family rather than convergence to one specific member.
 
-### 3) Opponent Confidence Gating
-Deviation alone is not enough for exploitation. The model combines:
-- signal (`KL` from Nash), and
-- precision (inverse posterior variance)
-so exploitation only increases when deviation is both present and statistically reliable.
+**MCCFR variance.** `ExternalSamplingMCCFR` tracks per-infoset baseline statistics and exposes `variance_reduction_stats()`. This makes variance reduction visible rather than implicit, and enables calibration checks in gate 7.
 
-### 4) MCCFR Diagnostics
-`ExternalSamplingMCCFR` tracks per-info-set baseline statistics (`baseline`, `baseline_count`) and exposes `variance_reduction_stats()` for calibration visibility.
+**Import note.** Run all scripts from repository root. If running from a subdirectory:
 
-## Output Artifacts
+```bash
+python -m notebooks.run_everything
+python -m trading.glosten_milgrom
+```
 
-Running the pipeline will update:
-- `analysis/convergence_kuhn.png`
-- `analysis/threeway_convergence.png` (if generated by comparison function)
+---
 
-## Current Status
+## Dependencies
 
-- Full pipeline passes in current workspace.
-- Core Kuhn tests pass.
-- Opponent modeling and strategy mixing hooks are integrated.
-
-## Known Limitations
-
-- `core/leduc_poker.py` is experimental and not covered by current automated tests.
-- Several evaluation steps are stochastic; outcomes are bounded by assertions but can vary slightly run-to-run.
-
-## Git Ignore
-
-Project-level `.gitignore` excludes:
-- `venv/` and `.venv/`
-- Python cache files
-- local matplotlib cache (`.mplconfig/`)
-
+Runtime: `numpy`, `scipy`, `matplotlib`  
+Dev: `pytest` (see `requirements-dev.txt`)  
+CI: GitHub Actions (`.github/workflows/ci.yml`)

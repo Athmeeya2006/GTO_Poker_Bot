@@ -5,6 +5,7 @@ All gates must pass. This is what you show in interviews.
 """
 import os
 import random
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,7 +21,7 @@ print("  GTO POKER BOT — FULL PIPELINE")
 print("=" * 60)
 
 # ── GATE 1: Kuhn Nash Solution ──────────────────────────────
-print("\n[1/8] Verifying Kuhn Nash solution...")
+print("\n[1/10] Verifying Kuhn Nash solution...")
 from core.cfr_plus import CFRPlus
 from core.exploitability import compute_exploitability
 
@@ -50,8 +51,9 @@ assert expl < 0.01
 print("  PASS ✓")
 
 # ── GATE 2: CFR+ vs Vanilla convergence ─────────────────────
-print("\n[2/8] Verifying CFR+ converges faster than Vanilla...")
+print("\n[2/10] Verifying CFR+ and DCFR convergence vs Vanilla...")
 from core.cfr import VanillaCFR
+from core.dcfr import DCFR
 
 v = VanillaCFR()
 v.train(2000)
@@ -61,13 +63,19 @@ c = CFRPlus()
 c.train(2000)
 c_expl = compute_exploitability(c.get_full_strategy())
 
+dc = DCFR()
+dc.train(2000)
+dc_expl = compute_exploitability(dc.get_full_strategy())
+
 print(f"  Vanilla @ 2000: {v_expl:.6f}")
 print(f"  CFR+    @ 2000: {c_expl:.6f}")
+print(f"  DCFR    @ 2000: {dc_expl:.6f}")
 assert c_expl < v_expl
+assert dc_expl < v_expl
 print("  PASS ✓")
 
 # ── GATE 3: Opponent model — GTO opponent has KL ≈ 0 ────────
-print("\n[3/8] Verifying Dirichlet model KL behavior...")
+print("\n[3/10] Verifying Dirichlet model KL behavior...")
 from opponent_model.dirichlet_model import DirichletOpponentModel
 
 model = DirichletOpponentModel(alpha_prior=1.0)
@@ -90,7 +98,7 @@ assert kl_k < 0.08 and kl_q < 0.08 and kl_j < 0.08
 print("  PASS ✓")
 
 # ── GATE 4: SPRT detects nit quickly ─────────────────────────
-print("\n[4/8] Verifying SPRT detects leak in < 30 observations...")
+print("\n[4/10] Verifying SPRT detects leak in < 30 observations...")
 from opponent_model.hypothesis_test import SPRTLeakDetector
 
 # Use a non-degenerate baseline frequency (Q:b fold ~ 2/3), then test
@@ -113,13 +121,16 @@ assert n_to_decide is not None and n_to_decide < 50
 print("  PASS ✓")
 
 # ── GATE 5: Glosten-Milgrom isomorphism ──────────────────────
-print("\n[5/8] Verifying Glosten-Milgrom isomorphism...")
+print("\n[5/10] Verifying Glosten-Milgrom toy mapping consistency...")
 from trading.glosten_milgrom import GlostenMilgromModel
 
-gm     = GlostenMilgromModel(V_L=1, V_H=3, mu=0.5)
-# Use the informed-trader fraction implied by the learned bluff frequency.
-implied_mu = gm.implied_mu_from_bluff_frequency(j_bluff)
-gm = GlostenMilgromModel(V_L=1, V_H=3, mu=implied_mu)
+# Use an exogenous informed-trader fraction and check consistency both ways.
+gm = GlostenMilgromModel(V_L=1, V_H=3, mu=2.0 / 3.0)
+implied_alpha = gm.implied_bluff_frequency_from_mu()
+print(f"  Exogenous μ: {gm.mu:.4f} -> implied alpha: {implied_alpha:.4f}")
+assert abs(j_bluff - implied_alpha) < 0.12, \
+    f"CFR bluff freq {j_bluff:.4f} not close to implied alpha {implied_alpha:.4f}"
+
 result = gm.verify_isomorphism(j_bluff)
 spread_gap = abs(result["gm_spread"] - result["poker_spread"])
 print(f"\n  Spread gap |GM - Poker|: {spread_gap:.4f}")
@@ -127,13 +138,14 @@ assert spread_gap < 0.02, f"Spread gap too large: {spread_gap}"
 print("  PASS ✓")
 
 # ── GATE 6: Generate all plots ───────────────────────────────
-print("\n[6/8] Generating analysis plots...")
-from analysis.convergence_plots import generate_convergence_plot
+print("\n[6/10] Generating analysis plots...")
+from analysis.convergence_plots import generate_convergence_plot, generate_convergence_table
 generate_convergence_plot(max_iters=3000, sample_every=100)
+generate_convergence_table(max_iters=2000, sample_every=100)
 print("  Plots saved to analysis/")
 
 # ── GATE 7: Variance reduction check ─────────────────────────
-print("\n[7/8] Verifying MCCFR variance reduction...")
+print("\n[7/10] Verifying MCCFR variance reduction...")
 from core.mccfr import ExternalSamplingMCCFR
 
 mccfr = ExternalSamplingMCCFR()
@@ -147,7 +159,7 @@ assert calibrated >= 3
 print("  PASS ✓")
 
 # ── GATE 8: Posterior variance confidence gating ─────────────
-print("\n[8/8] Verifying posterior variance confidence gating...")
+print("\n[8/10] Verifying posterior variance confidence gating...")
 from opponent_model.dirichlet_model import DirichletOpponentModel
 
 model = DirichletOpponentModel()
@@ -162,6 +174,35 @@ print(f"  Posterior variance on fold action: {var:.6f}")
 print(f"  Confidence score: {conf:.4f}  (expected > 0.5 after 30 obs of nit)")
 assert conf > 0.3, f"Confidence too low: {conf}"
 print("  PASS ✓")
+
+# ── GATE 9: Leduc solver smoke test ───────────────────────────
+print("\n[9/10] Verifying Leduc solver training smoke test...")
+from core.leduc_poker import LeducCFR
+
+leduc = LeducCFR()
+leduc.train(2)
+leduc_strat = leduc.get_full_strategy()
+print(f"  Leduc info sets learned: {len(leduc_strat)}")
+assert len(leduc_strat) > 0
+print("  PASS ✓")
+
+# ── GATE 10: Pytest invocation smoke check ─────────────────────
+print("\n[10/10] Verifying pytest-style tests are discoverable...")
+try:
+    import pytest  # noqa: F401
+except ModuleNotFoundError:
+    print("  SKIP: pytest not installed in current environment.")
+    print("  Install dev dependencies with: pip install -r requirements-dev.txt")
+else:
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/test_kuhn_game.py", "tests/test_cfr_convergence.py", "-q"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    print(result.stdout.strip())
+    assert result.returncode == 0, result.stderr
+    print("  PASS ✓")
 
 print("\n" + "=" * 60)
 print("  ALL GATES PASSED — Pipeline complete.")
