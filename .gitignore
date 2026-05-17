@@ -1,20 +1,52 @@
-# Virtual environments
+# --- Python virtual environments ---
 venv/
 .venv/
+env/
+ENV/
 
-# Python cache/artifacts
+# --- Python bytecode / cache ---
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 *.so
-.pytest_cache/
+*$py.class
 
-# Local plotting/cache artifacts
+# --- Packaging / build outputs ---
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# --- Test / coverage / tooling cache ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# --- Jupyter / notebook artifacts ---
+.ipynb_checkpoints/
+
+# --- Local plotting/cache artifacts ---
 .mplconfig/
 analysis/*.png
 analysis/*.csv
 
-# OS/editor noise
+# --- IDE/editor/project-local settings ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Logs / temp files ---
+*.log
+tmp/
+.tmp/
+
+# --- OS noise ---
 .DS_Store
 Thumbs.db
