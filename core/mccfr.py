@@ -1,13 +1,13 @@
-# core/mccfr.py  — with baseline subtraction variance reduction
+# core/mccfr.py  - with baseline subtraction variance reduction
 """
 External Sampling MCCFR + Baseline Subtraction.
 
 The variance reduction technique:
   Standard MCCFR uses sampled counterfactual values v̂(a).
-  These are unbiased but high variance — each sample gives a noisy estimate.
+  These are unbiased but high variance - each sample gives a noisy estimate.
 
   Baseline subtraction: instead of using v̂(a) directly, use (v̂(a) - b(I))
-  where b(I) is a baseline — a running estimate of the expected value at I.
+  where b(I) is a baseline - a running estimate of the expected value at I.
 
   Since E[v̂(a) - b(I)] = E[v̂(a)] - b(I), and if b(I) ≈ E[v̂(a)],
   the variance drops dramatically while the estimator stays UNBIASED.
@@ -57,7 +57,7 @@ class ExternalSamplingMCCFR:
         """
         Incremental running mean update for the baseline at info_set.
         b_new = b_old + (value - b_old) / (n + 1)
-        This is Welford's online algorithm — numerically stable.
+        This is Welford's online algorithm - numerically stable.
         """
         n = self.baseline_count[info_set]
         self.baseline[info_set] += (value - self.baseline[info_set]) / (n + 1)
@@ -167,7 +167,7 @@ class ExternalSamplingMCCFR:
         """
         Print stats showing how much variance the baseline is absorbing.
         For each info set, shows the baseline value and how many times
-        it has been updated — proxy for how well-calibrated the baseline is.
+        it has been updated - proxy for how well-calibrated the baseline is.
         """
         print("\n=== Baseline Variance Reduction Stats ===")
         print(f"{'Info Set':20s}  {'Baseline':>10s}  {'N samples':>10s}")

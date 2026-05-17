@@ -1,7 +1,7 @@
 # opponent_model/hypothesis_test.py
 """
 Sequential Probability Ratio Test (SPRT) for exploit detection.
-Wald (1947) — optimal sequential test.
+Wald (1947) - optimal sequential test.
 
 H0: opponent plays action a with probability p0 (GTO frequency)
 H1: opponent plays action a with probability p1 = p0 + epsilon (leaked frequency)

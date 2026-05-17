@@ -7,7 +7,7 @@ CARD_NAMES = {1: "J", 2: "Q", 3: "K"}
 # Actions
 CHECK = "c"
 BET   = "b"
-CALL  = "c"   # same symbol as check — context distinguishes them
+CALL  = "c"   # same symbol as check - context distinguishes them
 FOLD  = "f"
 
 # History strings tell us everything about a hand.

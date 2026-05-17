@@ -11,7 +11,7 @@ Key design:
 class StrategyMixer:
     def __init__(self, gto_strategy, confidence_threshold=0.65):
         """
-        gto_strategy: dict {info_set: {action: prob}} — pre-computed Nash solution
+        gto_strategy: dict {info_set: {action: prob}} - pre-computed Nash solution
         confidence_threshold: minimum confidence before any exploitation
         """
         self.gto      = gto_strategy
@@ -48,7 +48,7 @@ class StrategyMixer:
     def get_mixed_strategy(self, info_set, actions, dirichlet_model,
                            nash_strategy, leak_type=None):
         """
-        Revised version — uses posterior variance for confidence gating.
+        Revised version - uses posterior variance for confidence gating.
         """
         gto_strat = self.gto.get(info_set, {a: 1.0 / len(actions) for a in actions})
 

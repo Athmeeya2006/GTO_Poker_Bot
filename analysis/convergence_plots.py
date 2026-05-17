@@ -197,7 +197,7 @@ def generate_threeway_comparison(max_iters=5000, sample_every=50):
 
     plt.xlabel("Iterations (vanilla/CFR+) | ×6 for MCCFR")
     plt.ylabel("Exploitability (log scale)")
-    plt.title("Three-Way CFR Convergence Comparison — Kuhn Poker")
+    plt.title("Three-Way CFR Convergence Comparison - Kuhn Poker")
     plt.legend()
     plt.grid(True, alpha=0.3, which='both')
     plt.tight_layout()

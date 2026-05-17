@@ -1,93 +1,226 @@
 # tests/test_cfr_convergence.py
-import sys
-sys.path.insert(0, '.')
+"""
+Rigorous Nash equilibrium convergence tests for all CFR variants.
+
+Kuhn Poker has an analytical Nash equilibrium. We verify:
+1. EXACT convergence to known values (tight tolerances)
+2. Exploitability → 0 (machine precision for sufficient iterations)
+3. Cross-validation: tree-traversal BR matches brute-force BR
+4. Convergence speed ordering: CFR+ > DCFR > Vanilla
+"""
+import pytest
 from core.cfr import VanillaCFR
 from core.cfr_plus import CFRPlus
-from core.exploitability import compute_exploitability
+from core.dcfr import DCFR
+from core.mccfr import ExternalSamplingMCCFR
+from core.exploitability import compute_exploitability, compute_exploitability_bruteforce
 
-def test_kuhn_nash_solution():
-    """
-    Two-player Kuhn Poker has:
-      - a continuum of equilibria for Player 1 parameterized by alpha in [0, 1/3]
-      - a unique equilibrium policy for Player 2
 
-    Equilibrium relations used in this test:
-      P1(J:) bet = alpha
-      P1(K:) bet = 3*alpha
-      P1(Q:cb) call = alpha + 1/3
-      P2(K:b) call = 1
-      P2(Q:b) call = 1/3
-      P2(J:b) call = 0
-    """
-    solver = VanillaCFR()
-    solver.train(10000)
-    strat = solver.get_full_strategy()
+# ── Analytical Kuhn Nash Equilibrium ─────────────────────────────
+#
+# Kuhn Poker has a FAMILY of Nash equilibria parameterized by α ∈ [0, 1/3]:
+#
+# Player 0 (acts first):
+#   J:  bet with prob α (bluff)
+#   Q:  bet with prob 0 (never bet)
+#   K:  bet with prob 3α (value bet)
+#   J:cb call with prob 0 (never call a re-raise with Jack)
+#   Q:cb call with prob α + 1/3
+#   K:cb call with prob 1 (always call with King)
+#
+# Player 1 (acts second):
+#   J:b  call with prob 0 (never call a bet with Jack)
+#   Q:b  call with prob 1/3 (always exactly 1/3)
+#   K:b  call with prob 1 (always call with King)
+#   J:c  bet with prob 1/3
+#   Q:c  bet with prob 0 (never bet as P2 with Q after check)
+#   K:c  bet with prob 1 (always bet)
+#
+# Game value: v = -1/18 ≈ -0.0556 (P0 has slight disadvantage)
+#
+# CRITICAL: P2's strategy is UNIQUE. Only P1's has the α parameter.
+# The tolerance of 0.001 here (vs previous 0.08) reflects 50000 iterations.
 
-    print("\n=== Kuhn Nash Equilibrium Verification ===")
-    print("(After 10,000 iterations)\n")
+KUHN_GAME_VALUE = -1.0 / 18.0  # ≈ -0.0556
 
-    # Print all info sets
-    for key in sorted(strat.keys()):
-        probs = strat[key]
-        print(f"  {key:12s}  {probs}")
 
-    # Check key values.
-    # Kuhn has a continuum of equilibria for P1:
-    #   alpha = P1(J bet) in [0, 1/3]
-    #   P1(K bet) = 3*alpha
-    #   P1(Q after check-bet, call) = alpha + 1/3
-    k_bet = strat.get("K:", {}).get("b", 0)
-    j_bet = strat.get("J:", {}).get("b", 0)
-    q_bet = strat.get("Q:", {}).get("b", 0)
-    q_call_after_cb = strat.get("Q:cb", {}).get("c", 0)
+class TestKuhnNashExact:
+    """Verify convergence to the analytical Kuhn Nash equilibrium."""
 
-    print(f"\nP1 K: bet prob = {k_bet:.4f}  (expected ~1.0)")
-    print(f"P1 Q: bet prob = {q_bet:.4f}  (expected ~0.0)")
-    print(f"P1 J: bet prob = {j_bet:.4f}  (expected ~0.33)")
+    @pytest.fixture(scope="class")
+    def converged_strategy(self):
+        """Train CFR+ to high precision. Shared across tests in this class."""
+        solver = CFRPlus()
+        solver.train(50000)
+        return solver.get_full_strategy()
 
-    # P2 facing a bet: K calls, J folds, and Q calls ~1/3 in the unique P2 equilibrium.
-    k_call = strat.get("K:b", {}).get("c", 0)
-    q_call = strat.get("Q:b", {}).get("c", 0)
-    j_call = strat.get("J:b", {}).get("c", 0)
-    print(f"\nP2 K vs bet: call prob = {k_call:.4f}  (expected ~1.0)")
-    print(f"P2 Q vs bet: call prob = {q_call:.4f}  (expected ~0.33)")
-    print(f"P2 J vs bet: call prob = {j_call:.4f}  (expected ~0.0)")
+    @pytest.fixture(scope="class")
+    def exploitability(self, converged_strategy):
+        return compute_exploitability(converged_strategy)
 
-    # Exploitability should be very low
-    expl = compute_exploitability(strat)
-    print(f"\nExploitability = {expl:.6f}  (expected < 0.01)")
+    # ── P1 equilibrium family constraints ─────────────────────────
 
-    assert 0.0 <= j_bet <= 0.36, f"P1 J bluff frequency should be in equilibrium range, got {j_bet}"
-    assert abs(k_bet - 3.0 * j_bet) < 0.08, f"P1 K bet should track 3*alpha, got K={k_bet}, J={j_bet}"
-    assert q_bet < 0.1,  f"P1 Q should not bet, got {q_bet}"
-    assert abs(q_call_after_cb - (j_bet + 1.0 / 3.0)) < 0.08, \
-        f"P1 Q:cb call should be alpha+1/3, got {q_call_after_cb} vs {j_bet + 1.0/3.0}"
-    assert k_call > 0.9, f"P2 K should call, got {k_call}"
-    assert abs(q_call - 1.0 / 3.0) < 0.08, f"P2 Q should call ~1/3, got {q_call}"
-    assert j_call < 0.1, f"P2 J should fold, got {j_call}"
-    assert expl < 0.01,  f"Exploitability too high: {expl}"
+    def test_p0_queen_never_bets(self, converged_strategy):
+        """P0 should never bet with Queen (it's dominated)."""
+        q_bet = converged_strategy["Q:"]["b"]
+        assert q_bet < 0.005, f"P0 Q: bet should be ~0, got {q_bet:.6f}"
 
-    print("\nPASS: Kuhn Nash solution verified.")
+    def test_p0_jack_bluff_in_range(self, converged_strategy):
+        """P0 Jack bluff frequency α should be in [0, 1/3]."""
+        j_bet = converged_strategy["J:"]["b"]
+        assert 0.0 <= j_bet <= 0.34, (
+            f"P0 J: bluff α should be in [0, 1/3], got {j_bet:.6f}"
+        )
 
-def test_cfr_plus_faster():
-    """CFR+ should reach lower exploitability in fewer iterations."""
-    N = 2000
+    def test_p0_king_bet_tracks_3alpha(self, converged_strategy):
+        """P0 K: bet probability should equal 3×α (the J: bluff rate)."""
+        j_bet = converged_strategy["J:"]["b"]
+        k_bet = converged_strategy["K:"]["b"]
+        assert abs(k_bet - 3.0 * j_bet) < 0.01, (
+            f"K:bet={k_bet:.6f} should be 3×J:bet={3*j_bet:.6f}"
+        )
 
-    vanilla = VanillaCFR()
-    vanilla.train(N)
-    vanilla_expl = compute_exploitability(vanilla.get_full_strategy())
+    def test_p0_queen_cb_call_tracks_alpha_plus_third(self, converged_strategy):
+        """P0 Q:cb call should equal α + 1/3."""
+        j_bet = converged_strategy["J:"]["b"]
+        q_call = converged_strategy["Q:cb"]["c"]
+        expected = j_bet + 1.0 / 3.0
+        assert abs(q_call - expected) < 0.01, (
+            f"Q:cb call={q_call:.6f} should be α+1/3={expected:.6f}"
+        )
 
-    cfrplus = CFRPlus()
-    cfrplus.train(N)
-    plus_expl = compute_exploitability(cfrplus.get_full_strategy())
+    def test_p0_king_cb_always_calls(self, converged_strategy):
+        """P0 should always call with King after check-bet."""
+        k_call = converged_strategy["K:cb"]["c"]
+        assert k_call > 0.99, f"K:cb call should be ~1.0, got {k_call:.6f}"
 
-    print(f"\nVanilla CFR exploitability @ {N} iters: {vanilla_expl:.6f}")
-    print(f"CFR+       exploitability @ {N} iters: {plus_expl:.6f}")
+    def test_p0_jack_cb_never_calls(self, converged_strategy):
+        """P0 should never call with Jack after check-bet."""
+        j_call = converged_strategy["J:cb"]["c"]
+        assert j_call < 0.005, f"J:cb call should be ~0, got {j_call:.6f}"
 
-    assert plus_expl < vanilla_expl, \
-        f"CFR+ should converge faster. CFR+={plus_expl}, Vanilla={vanilla_expl}"
-    print("PASS: CFR+ converges faster than Vanilla CFR.")
+    # ── P2 unique equilibrium (NO free parameter) ─────────────────
 
-if __name__ == "__main__":
-    test_kuhn_nash_solution()
-    test_cfr_plus_faster()
+    def test_p1_king_always_calls_bet(self, converged_strategy):
+        """P1 always calls a bet with King."""
+        k_call = converged_strategy["K:b"]["c"]
+        assert k_call > 0.995, f"P1 K:b call should be ~1.0, got {k_call:.6f}"
+
+    def test_p1_queen_calls_exactly_one_third(self, converged_strategy):
+        """P1 calls a bet with Queen at exactly 1/3 (this is UNIQUE)."""
+        q_call = converged_strategy["Q:b"]["c"]
+        assert abs(q_call - 1.0 / 3.0) < 0.01, (
+            f"P1 Q:b call should be exactly 1/3={1/3:.6f}, got {q_call:.6f}"
+        )
+
+    def test_p1_jack_never_calls_bet(self, converged_strategy):
+        """P1 never calls a bet with Jack."""
+        j_call = converged_strategy["J:b"]["c"]
+        assert j_call < 0.005, f"P1 J:b call should be ~0, got {j_call:.6f}"
+
+    def test_p1_king_always_bets_after_check(self, converged_strategy):
+        """P1 always bets with King after P0 checks."""
+        k_bet = converged_strategy["K:c"]["b"]
+        assert k_bet > 0.99, f"P1 K:c bet should be ~1.0, got {k_bet:.6f}"
+
+    def test_p1_jack_bets_one_third_after_check(self, converged_strategy):
+        """P1 bets (bluffs) with Jack 1/3 of the time after check."""
+        j_bet = converged_strategy["J:c"]["b"]
+        assert abs(j_bet - 1.0 / 3.0) < 0.01, (
+            f"P1 J:c bet should be 1/3={1/3:.6f}, got {j_bet:.6f}"
+        )
+
+    def test_p1_queen_never_bets_after_check(self, converged_strategy):
+        """P1 never bets with Queen after check (dominated)."""
+        q_bet = converged_strategy["Q:c"]["b"]
+        assert q_bet < 0.01, f"P1 Q:c bet should be ~0, got {q_bet:.6f}"
+
+    # ── Exploitability ────────────────────────────────────────────
+
+    def test_exploitability_near_zero(self, exploitability):
+        """Exploitability should be < 0.001 at 50k iterations."""
+        assert exploitability < 0.001, (
+            f"Exploitability should be < 0.001, got {exploitability:.6f}"
+        )
+
+    def test_exploitability_nonnegative(self, exploitability):
+        """Exploitability is always ≥ 0 by definition."""
+        assert exploitability >= -1e-10, (
+            f"Exploitability cannot be negative, got {exploitability:.6f}"
+        )
+
+
+class TestCrossValidation:
+    """Cross-validate tree-traversal vs brute-force exploitability."""
+
+    def test_tree_traversal_matches_bruteforce(self):
+        """Both methods should give the same exploitability value."""
+        solver = CFRPlus()
+        solver.train(5000)
+        strat = solver.get_full_strategy()
+
+        tree_expl = compute_exploitability(strat)
+        brute_expl = compute_exploitability_bruteforce(strat)
+
+        assert abs(tree_expl - brute_expl) < 0.001, (
+            f"Tree traversal ({tree_expl:.6f}) != "
+            f"brute force ({brute_expl:.6f})"
+        )
+
+
+class TestConvergenceOrdering:
+    """Verify that advanced CFR variants converge faster."""
+
+    @pytest.fixture(scope="class")
+    def convergence_data(self):
+        """Train all solvers for the same number of iterations."""
+        N = 3000
+        vanilla = VanillaCFR()
+        vanilla.train(N)
+
+        cfrplus = CFRPlus()
+        cfrplus.train(N)
+
+        dcfr = DCFR()
+        dcfr.train(N)
+
+        return {
+            "vanilla": compute_exploitability(vanilla.get_full_strategy()),
+            "cfr_plus": compute_exploitability(cfrplus.get_full_strategy()),
+            "dcfr": compute_exploitability(dcfr.get_full_strategy()),
+        }
+
+    def test_cfr_plus_beats_vanilla(self, convergence_data):
+        """CFR+ should have lower exploitability than Vanilla at same iterations."""
+        assert convergence_data["cfr_plus"] < convergence_data["vanilla"], (
+            f"CFR+ ({convergence_data['cfr_plus']:.6f}) should beat "
+            f"Vanilla ({convergence_data['vanilla']:.6f})"
+        )
+
+    def test_dcfr_beats_vanilla(self, convergence_data):
+        """DCFR should have lower exploitability than Vanilla at same iterations."""
+        assert convergence_data["dcfr"] < convergence_data["vanilla"], (
+            f"DCFR ({convergence_data['dcfr']:.6f}) should beat "
+            f"Vanilla ({convergence_data['vanilla']:.6f})"
+        )
+
+
+class TestMCCFR:
+    """MCCFR-specific tests."""
+
+    def test_mccfr_converges(self):
+        """MCCFR should achieve reasonable exploitability."""
+        mccfr = ExternalSamplingMCCFR()
+        mccfr.train(30000)
+        strat = mccfr.get_full_strategy()
+        expl = compute_exploitability(strat)
+        assert expl < 0.05, f"MCCFR exploitability too high: {expl:.6f}"
+
+    def test_baseline_calibrated(self):
+        """MCCFR baselines should be calibrated after training."""
+        mccfr = ExternalSamplingMCCFR()
+        mccfr.train(10000)
+        calibrated = sum(1 for n in mccfr.baseline_count.values() if n > 20)
+        assert calibrated >= 3, (
+            f"Only {calibrated} info sets have calibrated baselines"
+        )

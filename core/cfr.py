@@ -1,4 +1,4 @@
-# core/cfr.py  — clean version
+# core/cfr.py  - clean version
 from collections import defaultdict
 from itertools import permutations
 from core.kuhn_poker import (
