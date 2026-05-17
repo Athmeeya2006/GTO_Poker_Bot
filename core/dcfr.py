@@ -85,16 +85,22 @@ class DCFR:
         for _ in range(iterations):
             self.t += 1
 
-            # Apply discounting ONCE per iteration (before tree traversals)
+            # Traverse first: accumulate new regrets using current strategy
+            for cards in permutations(CARDS, 2):
+                self._cfr(list(cards), "", 1.0, 1.0)
+
+            # Apply discounting AFTER traversal (Brown & Sandholm 2019).
+            # This discounts the accumulated regrets from all PREVIOUS
+            # iterations before the next iteration uses them. Discounting
+            # before traversal would cause the current iteration's strategy
+            # to be computed from already-discounted regrets, shifting the
+            # discount schedule off by one step.
             for i_set in list(self.regrets.keys()):
                 actions = list(self.regrets[i_set].keys())
                 self._discount_regrets(i_set, actions)
             for i_set in list(self.strategy_sum.keys()):
                 actions = list(self.strategy_sum[i_set].keys())
                 self._discount_strategy_sum(i_set, actions)
-
-            for cards in permutations(CARDS, 2):
-                self._cfr(list(cards), "", 1.0, 1.0)
 
     def get_average_strategy(self, info_set, actions):
         s = self.strategy_sum[info_set]

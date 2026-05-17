@@ -91,6 +91,13 @@ class KuhnPokerBot:
         self.bot_bankroll = 0.0
         self.human_bankroll = 0.0
 
+        # Per-position tracking: Kuhn Poker P0 has game value -1/18 ≈ -0.056,
+        # so raw bankroll is misleading without controlling for position.
+        self.human_hands_as_p0 = 0
+        self.human_hands_as_p1 = 0
+        self.human_bankroll_as_p0 = 0.0
+        self.human_bankroll_as_p1 = 0.0
+
     def _bot_action(self, info_set, actions, history):
         """
         Choose bot's action using Nash + optional exploitation.
@@ -222,6 +229,14 @@ class KuhnPokerBot:
         self.bot_bankroll += bot_payoff
         self.hands_played += 1
 
+        # Track per-position results
+        if human_player == 0:
+            self.human_hands_as_p0 += 1
+            self.human_bankroll_as_p0 += human_payoff
+        else:
+            self.human_hands_as_p1 += 1
+            self.human_bankroll_as_p1 += human_payoff
+
         if verbose:
             print(f"\n--- Result ---")
             print(f"Bot's card: {CARD_NAMES[bot_card]}")
@@ -305,7 +320,7 @@ class KuhnPokerBot:
         self._show_final_results()
 
     def _show_stats(self):
-        """Show session statistics."""
+        """Show session statistics with position-adjusted win rates."""
         print(f"\n--- Session Stats ---")
         print(f"Hands played: {self.hands_played}")
         print(f"Your bankroll: {self.human_bankroll:+.0f}")
@@ -314,8 +329,24 @@ class KuhnPokerBot:
             print(f"Your avg chips/hand: {self.human_bankroll / self.hands_played:+.3f}")
             print(f"Bot avg chips/hand:  {self.bot_bankroll / self.hands_played:+.3f}")
 
+        # Position-adjusted stats
+        # Kuhn game value is -1/18 from P0 perspective. Controlling for
+        # position removes the systematic disadvantage from first-mover.
+        KUHN_GAME_VALUE = -1.0 / 18.0  # P0's expected value at Nash
+        print(f"\n--- Position-Adjusted Stats ---")
+        if self.human_hands_as_p0 > 0:
+            raw_p0 = self.human_bankroll_as_p0 / self.human_hands_as_p0
+            adj_p0 = raw_p0 - KUHN_GAME_VALUE  # remove P0 disadvantage
+            print(f"As P0 (first):  {self.human_hands_as_p0} hands, "
+                  f"raw={raw_p0:+.3f}, adjusted={adj_p0:+.3f} chips/hand")
+        if self.human_hands_as_p1 > 0:
+            raw_p1 = self.human_bankroll_as_p1 / self.human_hands_as_p1
+            adj_p1 = raw_p1 + KUHN_GAME_VALUE  # P1 has +1/18 advantage
+            print(f"As P1 (second): {self.human_hands_as_p1} hands, "
+                  f"raw={raw_p1:+.3f}, adjusted={adj_p1:+.3f} chips/hand")
+
     def _show_final_results(self):
-        """Show end-of-session summary."""
+        """Show end-of-session summary with position-adjusted stats."""
         print(f"\n{'═' * 50}")
         print("  SESSION COMPLETE")
         print(f"{'═' * 50}")
@@ -324,6 +355,18 @@ class KuhnPokerBot:
         print(f"Bot bankroll:  {self.bot_bankroll:+.0f}")
         if self.hands_played > 0:
             print(f"Your avg:      {self.human_bankroll / self.hands_played:+.3f} chips/hand")
+
+            # Position breakdown
+            KUHN_GAME_VALUE = -1.0 / 18.0
+            print(f"\n--- Position Breakdown ---")
+            print(f"  P0 (first to act) has EV = {KUHN_GAME_VALUE:+.4f} at Nash")
+            if self.human_hands_as_p0 > 0:
+                raw = self.human_bankroll_as_p0 / self.human_hands_as_p0
+                print(f"  You as P0: {self.human_hands_as_p0} hands, {raw:+.3f} chips/hand")
+            if self.human_hands_as_p1 > 0:
+                raw = self.human_bankroll_as_p1 / self.human_hands_as_p1
+                print(f"  You as P1: {self.human_hands_as_p1} hands, {raw:+.3f} chips/hand")
+
         self.show_opponent_model()
 
 

@@ -209,29 +209,55 @@ def get_info_set_leduc(history, cards, player):
 # ── Game Interface for generic exploitability ─────────────────────
 
 class LeducGameInterface:
-    """Adapter for compute_exploitability_generic."""
+    """Adapter for compute_exploitability_generic.
+
+    Handles the round transition that the Leduc CFR solver manages
+    internally. When round 1 is complete (no fold), we transparently
+    insert the '/' separator so the generic exploitability code can
+    walk the game tree correctly.
+    """
 
     def __init__(self):
         self._all_deals = get_all_deals()
+
+    def _needs_transition(self, history):
+        """Check if history is at a round-1-complete state needing '/' transition."""
+        parts = history.split("/")
+        return len(parts) == 1 and _is_round_over(parts[0]) and "f" not in history
 
     def is_terminal(self, history):
         return is_terminal_leduc(history)
 
     def get_actions(self, history):
-        # Handle round transition
-        parts = history.split("/")
-        if len(parts) == 1 and _is_round_over(parts[0]) and "f" not in history:
+        # If round 1 is over (no fold), return round 2 opening actions
+        if self._needs_transition(history):
             return get_actions_leduc(history + "/")
         return get_actions_leduc(history)
 
     def current_player(self, history):
+        # If round 1 is over, player at round 2 opening
+        if self._needs_transition(history):
+            return current_player_leduc(history + "/")
         return current_player_leduc(history)
 
     def get_payoff(self, history, cards, player):
         return get_payoff_leduc(history, cards, player)
 
     def get_info_set(self, history, cards, player):
+        # If round 1 is over, use round 2 info set (reveals community card)
+        if self._needs_transition(history):
+            return get_info_set_leduc(history + "/", cards, player)
         return get_info_set_leduc(history, cards, player)
+
+    def next_history(self, history, action):
+        """Construct next history string, inserting '/' for round transitions.
+
+        When round 1 is complete and the action belongs to round 2,
+        we insert the '/' separator before appending the action.
+        """
+        if self._needs_transition(history):
+            return history + "/" + action
+        return history + action
 
     def get_all_deals(self):
         return self._all_deals

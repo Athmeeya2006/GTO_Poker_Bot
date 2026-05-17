@@ -128,7 +128,15 @@ class TestSPRT:
         assert len(leaks) > 0, "SPRT should detect the fold leak"
 
     def test_no_false_positive_on_gto(self):
-        """SPRT should not trigger on a GTO-playing opponent."""
+        """SPRT should not trigger on a GTO-playing opponent.
+
+        NOTE: This test uses a fixed seed (42) for determinism. SPRT has
+        alpha=0.05 (5% false positive rate by design), so with any random
+        seed there is a 5% chance of false positive. The seed 42 has been
+        verified to NOT produce a false positive for this specific scenario.
+        If this test fails after changing the seed, that is expected behavior
+        — the FPR guarantee is statistical, not per-trial.
+        """
         sprt = SPRTLeakDetector(alpha=0.05, beta=0.05, epsilon=0.20)
         rng = random.Random(42)
 
@@ -141,7 +149,7 @@ class TestSPRT:
         leaks = sprt.get_detected_leaks()
         fold_leaks = [l for l in leaks if l[0] == "Q:b" and l[1] == "f"]
         assert len(fold_leaks) == 0, (
-            "Should not detect leak for GTO-playing opponent"
+            "Should not detect leak for GTO-playing opponent (seed=42 verified)"
         )
 
     def test_detection_speed(self):

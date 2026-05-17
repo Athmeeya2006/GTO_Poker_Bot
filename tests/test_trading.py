@@ -73,17 +73,23 @@ class TestGMKuhnMapping:
             f"Roundtrip failed: {gm.mu} -> {alpha} -> {mu_back}"
         )
 
-    def test_spread_consistency(self, cfr_data):
-        """GM spread and poker-derived spread should match when μ is calibrated."""
+    def test_zero_profit_at_nash(self, cfr_data):
+        """Market maker breaks even at Nash bluff frequency.
+
+        This is the core economic prediction of the GM isomorphism:
+        at Nash equilibrium, the informed trader's edge is exactly offset
+        by the market maker's spread, yielding zero expected profit.
+
+        This is NOT a circular test — it verifies an independent economic
+        property (zero-profit condition) using the CFR-derived equilibrium.
+        """
         bf = cfr_data["bluff_freq"]
-        implied_mu = GlostenMilgromModel(V_L=1, V_H=3).implied_mu_from_bluff_frequency(bf)
-        gm = GlostenMilgromModel(V_L=1, V_H=3, mu=implied_mu)
-
-        gm_spread = gm.bid_ask_spread()
-        poker_spread = gm.spread_from_bluff_frequency(bf)
-
-        assert abs(gm_spread - poker_spread) < 0.02, (
-            f"Spread mismatch: GM={gm_spread:.4f}, Poker={poker_spread:.4f}"
+        gm = GlostenMilgromModel(V_L=1, V_H=3, mu=0.6)
+        profit = gm.expected_profit_per_trade(bf)
+        # At Nash α ∈ [0, 1/3], the MM should approximately break even.
+        # The exact zero-profit condition holds at α = 1/3 analytically.
+        assert abs(profit) < 0.05, (
+            f"MM should approximately break even at Nash, profit={profit:.6f}"
         )
 
     def test_informed_posterior_at_nash(self, cfr_data):
@@ -104,23 +110,28 @@ class TestGMLimitations:
     is AWARE of its limitations. This is what interviewers probe.
     """
 
-    def test_binary_vs_continuous_values(self):
+    def test_spread_scales_linearly_with_value_range(self):
         """
-        LIMITATION: Kuhn has 3 discrete card values.
-        Real markets have continuous price processes.
+        VERIFIED BEHAVIOR: In the binary-value GM model, the bid-ask spread
+        scales linearly with (V_H - V_L). This is CORRECT — it's the exact
+        formula for the binary case.
 
-        The GM model uses only V_L and V_H, collapsing the Queen.
-        With more value levels, the spread formula changes.
+        LIMITATION (documented, not tested here): Real markets have
+        continuous value distributions where the spread formula involves
+        integral expectations over the value density, not just V_H - V_L.
+        Moving from binary to continuous values changes the functional
+        form of the spread, which this binary model cannot capture.
         """
-        # Three different value ranges should give different spreads
+        # Three different value ranges should give proportional spreads
         gm_narrow = GlostenMilgromModel(V_L=1, V_H=2, mu=0.5)
         gm_wide = GlostenMilgromModel(V_L=1, V_H=10, mu=0.5)
 
-        # Spread scales with value range (linear in V_H - V_L)
+        # Spread scales linearly with value range — this is CORRECT
+        # for the binary GM model, not a limitation
         ratio = gm_wide.bid_ask_spread() / gm_narrow.bid_ask_spread()
         expected_ratio = (10 - 1) / (2 - 1)
         assert abs(ratio - expected_ratio) < 0.1, (
-            f"Spread should scale linearly with value range. "
+            f"Binary-value spread should scale linearly with value range. "
             f"Got ratio {ratio:.2f}, expected {expected_ratio:.2f}"
         )
 

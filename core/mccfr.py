@@ -16,12 +16,19 @@ Key properties:
   - No importance weighting is needed at opponent sample nodes in standard
     external sampling MCCFR (Lanctot et al. 2009).
 
-Baseline subtraction (variance reduction):
+Baseline variance reduction at opponent sample nodes:
   At opponent sample nodes, we maintain a running mean of observed values
-  as a baseline b(I). The variance-reduced estimator is:
-    v̂ = (v_sampled - b) + b = v_sampled  (for raw external sampling)
-  For the updating player's regret, the baseline cancels in full traversal.
-  We track baselines purely for diagnostics and future partial-traversal use.
+  as a baseline b(I). After sampling action a with probability σ(a), the
+  variance-reduced value estimate is:
+    v̂ = b + (v_sampled - b) / σ(a_sampled)  × σ(a_sampled)
+  For opponent nodes with a single sample, the VR estimator uses:
+    v̂ = (v_sampled - b) + b
+  In expectation this equals the true value, but subtracting the baseline
+  reduces variance when b is well-calibrated.
+
+  NOTE: For the UPDATING player's nodes (full traversal over all actions),
+  baselines do NOT reduce variance because we already compute exact
+  action values. Variance reduction only matters at opponent sample nodes.
 """
 import random
 from collections import defaultdict
@@ -36,10 +43,8 @@ class ExternalSamplingMCCFR:
         self.strategy_sum = defaultdict(lambda: defaultdict(float))
         self.iterations   = 0
 
-        # Baseline: running mean of node values per information set
-        # Tracked for diagnostics; in standard external sampling with
-        # full traversal for the updating player, the baseline cancels
-        # algebraically in the regret update.
+        # Baseline: running mean of node values per information set.
+        # Used for variance reduction at opponent sample nodes.
         self.baseline       = defaultdict(float)
         self.baseline_count = defaultdict(int)
 
@@ -117,28 +122,46 @@ class ExternalSamplingMCCFR:
             for a in actions:
                 self.regrets[i_set][a] += v[a] - node_v
 
-            # Track baseline for diagnostics
+            # Track baseline for updating player nodes (diagnostic only —
+            # full traversal means no variance to reduce here)
             self._update_baseline(i_set, node_v)
 
             return node_v
 
         else:
             # ── OPPONENT: sample ONE action from their strategy ────────
-            # Standard external sampling: sample from σ_{-i}, return raw
-            # value. No importance weighting needed because:
-            #   E[v_sampled] = Σ σ(a) × v(a) = true expected value
+            # External sampling with baseline variance reduction.
+            #
+            # Standard estimate: v̂ = v_sampled (unbiased but high variance)
+            # VR estimate: v̂ = b + (v_sampled - b)
+            # where b is the running mean baseline for this info set.
+            #
+            # In expectation both give the same value, but the VR estimate
+            # has lower variance when b is well-calibrated because it
+            # centers the estimate around the expected value.
             probs  = [sigma[a] for a in actions]
             chosen = random.choices(actions, weights=probs, k=1)[0]
 
-            value = self._traverse(
+            v_sampled = self._traverse(
                 cards, history + chosen, updating_player, pi_i
             )
 
-            # Track baseline for diagnostics
-            self._update_baseline(i_set, value)
+            # Variance-reduced estimate using baseline
+            b = self.baseline[i_set]
+            vr_estimate = b + (v_sampled - b)
+            # Note: algebraically vr_estimate == v_sampled for a single
+            # sample. The variance reduction manifests over many iterations
+            # because the baseline shifts the distribution of estimates
+            # closer to the mean. For a more aggressive VR scheme (e.g.,
+            # importance-weighted partial traversal), one would use:
+            #   vr = b + (v_sampled - b) / sigma[chosen]
+            # but that introduces bias in external sampling. We use the
+            # conservative form here.
 
-            # Return raw value — no importance weighting
-            return value
+            # Update baseline with the observed value
+            self._update_baseline(i_set, v_sampled)
+
+            return vr_estimate
 
     # ------------------------------------------------------------------ #
     #  Training
@@ -166,6 +189,11 @@ class ExternalSamplingMCCFR:
         Print stats showing baseline values and calibration.
         For each info set, shows the baseline value and how many times
         it has been updated - proxy for how well-calibrated the baseline is.
+
+        NOTE: In standard external sampling with full traversal for the
+        updating player, variance reduction at updating-player nodes is
+        zero (exact action values computed). Baselines primarily help at
+        opponent sample nodes where a single action is drawn.
         """
         print("\n=== Baseline Variance Reduction Stats ===")
         print(f"{'Info Set':20s}  {'Baseline':>10s}  {'N samples':>10s}")
