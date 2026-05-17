@@ -1,0 +1,18 @@
+# Virtual environments
+venv/
+.venv/
+
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+
+# Local plotting/cache artifacts
+.mplconfig/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
