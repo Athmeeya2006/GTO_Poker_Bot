@@ -14,12 +14,8 @@ class CFRPlus:
     2. Average strategy uses LINEAR weighting: iteration t has weight t.
        This dramatically accelerates convergence.
 
-    Note on linear weighting:
-      self.t is incremented once per iteration and shared across all deal
-      permutations. This is correct: the weight applies per iteration, not
-      per tree traversal. All standard implementations (OpenSpiel, Pluribus,
-      etc.) use the same convention. Each iteration covers all deals, so
-      the iteration counter t properly indexes the averaging weight.
+    Linear weight self.t is per iteration (shared across all deal permutations),
+    matching the convention in OpenSpiel and Pluribus.
     """
     def __init__(self):
         self.regrets      = defaultdict(lambda: defaultdict(float))

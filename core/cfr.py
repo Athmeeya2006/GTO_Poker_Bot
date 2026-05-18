@@ -1,16 +1,8 @@
 # core/cfr.py  - alternating-updates vanilla CFR
 """
 Vanilla CFR with alternating updates (Zinkevich et al. 2007).
-
-Each iteration performs TWO traversals:
-  1. Fix P1's strategy, traverse all deals updating ONLY P0's regrets.
-  2. Fix P0's strategy, traverse all deals updating ONLY P1's regrets.
-
-This ensures the strategy used within a single traversal pass is a
-consistent snapshot — no player's regrets are modified mid-pass by
-updates from other deals. This is the standard formulation and avoids
-the slow/incorrect convergence caused by simultaneous updates where
-partially-updated regrets leak across deals within the same iteration.
+Each iteration does two traversals, updating one player's regrets per pass
+to keep strategies consistent within each traversal.
 """
 from collections import defaultdict
 from itertools import permutations
@@ -42,17 +34,8 @@ class VanillaCFR:
 
     def _cfr_player(self, cards, history, p0, p1, updating_player):
         """
-        Traverse the game tree, updating regrets for ONLY the updating_player.
-
+        Traverse the game tree, updating regrets for only the updating_player.
         Returns the expected value from Player 0's perspective.
-        Both players' strategy sums are accumulated (for average strategy),
-        but only the updating_player's regrets are modified.
-
-        Args:
-            cards: dealt cards [p0_card, p1_card]
-            history: action history string
-            p0, p1: reach probabilities for each player
-            updating_player: which player's regrets to update (0 or 1)
         """
         if is_terminal(history):
             return get_payoff(history, cards, 0)

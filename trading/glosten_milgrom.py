@@ -2,8 +2,6 @@
 """
 Glosten-Milgrom (1985) informed-trading model mapped to Kuhn Poker.
 
-THE MAPPING (exact correspondence):
-
   Poker (Kuhn)                   | Financial Market (GM)
   -------------------------------|----------------------------------------
   Player 1 (private card)        | Informed trader (knows true value V)
@@ -15,7 +13,7 @@ THE MAPPING (exact correspondence):
   Folding = refusing             | Market maker widens spread / refuses
   Nash equilibrium strategy      | Zero-profit bid-ask spread
 
-LIMITATIONS (explicitly documented):
+Limitations:
 
 1. DISCRETE vs CONTINUOUS VALUES: Kuhn has 3 discrete card values.
    Real markets have continuous price processes (e.g., geometric Brownian
@@ -31,7 +29,7 @@ LIMITATIONS (explicitly documented):
 3. NO INVENTORY RISK: The toy model assumes the market maker is
    risk-neutral with infinite capital. Real MMs face inventory risk,
    funding costs, and correlation across assets. The spread in practice
-   has both adverse selection AND inventory components (Amihud-Mendelson).
+   has both adverse selection and inventory components (Amihud-Mendelson).
 
 4. NO MULTI-ASSET CORRELATION: In real trading, information about one
    asset affects pricing of correlated assets. This model is single-asset.
@@ -41,10 +39,6 @@ LIMITATIONS (explicitly documented):
    informed trader's information advantage) but not other microstructure
    effects: order flow toxicity, maker-taker rebates, latency arbitrage,
    or market impact models (Almgren-Chriss).
-
-This module is BOTH:
-  - An educational demonstration of the isomorphism
-  - A functional tool that uses CFR output to compute trading quantities
 """
 import sys
 from pathlib import Path
@@ -58,15 +52,7 @@ from core.exploitability import compute_exploitability
 
 
 class GlostenMilgromModel:
-    """
-    Glosten-Milgrom model with Kuhn Poker isomorphism.
-
-    This model is FUNCTIONAL - it uses CFR solver output to:
-    1. Compute implied informed-trader fractions from equilibrium strategies
-    2. Derive zero-profit bid-ask spreads
-    3. Price assets under adverse selection
-    4. Generate trading signals based on observed bluff frequencies
-    """
+    """Glosten-Milgrom model with Kuhn Poker isomorphism."""
 
     def __init__(self, V_L=1, V_H=3, mu=0.5):
         """
@@ -85,10 +71,10 @@ class GlostenMilgromModel:
 
         Derivation:
           MM break-even condition:
-            ask = P(informed|buy) × V_H + P(uninformed|buy) × V_mid
+            ask = P(informed|buy) * V_H + P(uninformed|buy) * V_mid
           where:
-            P(buy) = μ × 1 + (1-μ) × 0.5
-            P(informed|buy) = μ / P(buy)
+            P(buy) = mu * 1 + (1-mu) * 0.5
+            P(informed|buy) = mu / P(buy)
         """
         p_buy_informed = 1.0
         p_buy_uninformed = 0.5
@@ -114,39 +100,36 @@ class GlostenMilgromModel:
     def adverse_selection_component(self):
         """
         Fraction of the spread attributable to adverse selection.
-        In this model, 100% of the spread IS adverse selection.
+        In this model, 100% of the spread is adverse selection.
         In real markets, spread = adverse_selection + inventory + fixed_costs.
         """
         return self.bid_ask_spread()
 
     def implied_mu_from_bluff_frequency(self, bluff_freq):
         """
-        Map Kuhn bluff frequency α to implied informed-trader fraction μ.
+        Map Kuhn bluff frequency alpha to implied informed-trader fraction mu.
 
         Derivation:
-          P(informed|buy) from Kuhn: 1 / (1 + α)
-          P(informed|buy) from GM:   2μ / (1 + μ)
-          Setting equal:  μ = 1 / (1 + 2α)
+          P(informed|buy) from Kuhn: 1 / (1 + alpha)
+          P(informed|buy) from GM:   2mu / (1 + mu)
+          Setting equal:  mu = 1 / (1 + 2*alpha)
         """
         alpha = max(0.0, min(bluff_freq, 1.0))
         return 1.0 / (1.0 + 2.0 * alpha)
 
     def implied_bluff_frequency_from_mu(self):
-        """
-        Inverse mapping: α = (1 - μ) / (2μ)
-        """
+        """Inverse mapping: alpha = (1 - mu) / (2*mu)"""
         mu = max(min(self.mu, 1.0), 1e-10)
         return (1.0 - mu) / (2.0 * mu)
 
     def spread_from_bluff_frequency(self, bluff_freq):
         """
-        THE KEY CONNECTION:
-        P(informed|bet) = 1 / (1 + α)
-        Spread = P(informed|bet) × (V_H - V_L)
+        P(informed|bet) = 1 / (1 + alpha)
+        Spread = P(informed|bet) * (V_H - V_L)
 
-        At Nash equilibrium (α = 1/3):
+        At Nash equilibrium (alpha = 1/3):
           P(informed|bet) = 3/4
-          Spread = 3/4 × 2 = 1.5
+          Spread = 3/4 * 2 = 1.5
         """
         p_informed = 1.0 / (1.0 + bluff_freq)
         return p_informed * (self.V_H - self.V_L)
@@ -154,9 +137,7 @@ class GlostenMilgromModel:
     def expected_profit_per_trade(self, bluff_freq):
         """
         Expected market maker profit per trade given bluff frequency.
-
         At Nash equilibrium, this should be 0 (zero-profit condition).
-        Away from Nash, MM profits or loses.
         """
         p_informed = 1.0 / (1.0 + bluff_freq)
         spread = self.spread_from_bluff_frequency(bluff_freq)
@@ -174,20 +155,12 @@ class GlostenMilgromModel:
         If bluff frequency deviates from Nash, there's a trading edge.
         Position size scales with edge strength and is bounded by
         max_risk_fraction of bankroll.
-
-        Args:
-            bluff_freq: observed bluff frequency
-            bankroll: available capital
-            max_risk_fraction: maximum fraction of bankroll to risk
-
-        Returns:
-            suggested position size in units
         """
         nash_alpha = 1.0 / 3.0
         edge = abs(bluff_freq - nash_alpha) / nash_alpha
 
-        # Kelly fraction ≈ edge / variance
-        # In this binary model, variance ≈ spread
+        # Kelly fraction ~ edge / variance
+        # In this binary model, variance ~ spread
         spread = self.spread_from_bluff_frequency(bluff_freq)
         if spread <= 0:
             return 0.0
@@ -212,8 +185,8 @@ class GlostenMilgromModel:
         print("  Glosten-Milgrom / Kuhn Poker Isomorphism")
         print("=" * 55)
         print(f"\n  Asset values:  V_L={self.V_L}, V_H={self.V_H}")
-        print(f"  Informed fraction μ = {self.mu:.4f}")
-        print(f"  Implied μ from bluff α: "
+        print(f"  Informed fraction mu = {self.mu:.4f}")
+        print(f"  Implied mu from bluff alpha: "
               f"{self.implied_mu_from_bluff_frequency(cfr_bluff_freq):.4f}\n")
         print(f"  GM optimal ask:   {self.optimal_ask_price():.4f}")
         print(f"  GM optimal bid:   {self.optimal_bid_price():.4f}")
@@ -222,7 +195,7 @@ class GlostenMilgromModel:
         print(f"  P(informed | bet):           {1/(1+cfr_bluff_freq):.4f}")
         print(f"  Poker-derived spread:        {poker_spread:.4f}")
         print(f"\n  |GM spread - Poker spread| = {abs(gm_spread - poker_spread):.6f}")
-        print(f"\n  KNOWN LIMITATIONS:")
+        print(f"\n  Known limitations:")
         print(f"  1. Discrete values (3 cards vs continuous prices)")
         print(f"  2. Single period (no dynamic price evolution)")
         print(f"  3. No inventory risk (infinite capital assumption)")
@@ -242,14 +215,8 @@ class GlostenMilgromModel:
 
 class TradingSignalGenerator:
     """
-    FUNCTIONAL trading signal generator that uses CFR equilibrium output
-    to produce actionable trading quantities.
-
-    This goes beyond illustration - it computes:
-    1. Fair spread given observed market conditions
-    2. Whether the observed spread is too wide/narrow (edge detection)
-    3. Position sizing recommendations
-    4. Signal strength (confidence in the edge)
+    Trading signal generator that uses CFR equilibrium output
+    to compute spreads, edge detection, and position sizing.
     """
 
     def __init__(self, V_L=1, V_H=3):
@@ -261,25 +228,20 @@ class TradingSignalGenerator:
         """
         Generate trading signals from observed bluff frequency.
 
-        Returns dict with:
-        - fair_spread: what the spread SHOULD be at this bluff frequency
-        - nash_spread: spread at Nash equilibrium (α = 1/3)
-        - edge: deviation from Nash (trading opportunity)
-        - signal: BUY_SPREAD / SELL_SPREAD / HOLD
-        - position_size: suggested size (relative units)
+        Returns dict with fair_spread, nash_spread, edge, signal,
+        confidence, position_size, bluff_freq, p_informed.
 
-        NOTE: Kuhn Poker has a FAMILY of Nash equilibria with α ∈ [0, 1/3].
+        Kuhn Poker has a family of Nash equilibria with alpha in [0, 1/3].
         Any bluff frequency in this range is Nash-optimal, so the signal
-        is HOLD for all α in [0, 1/3], not just α = 1/3.
+        is HOLD for all alpha in [0, 1/3], not just alpha = 1/3.
         """
         nash_alpha = 1.0 / 3.0
         nash_spread = self.gm.spread_from_bluff_frequency(nash_alpha)
         fair_spread = self.gm.spread_from_bluff_frequency(bluff_freq)
 
-        # Kuhn Nash equilibrium allows any α ∈ [0, 1/3]. All such α are
-        # equilibrium strategies with zero exploitability, so there is
-        # no trading edge when the observed bluff frequency is in this range.
-        nash_range_tolerance = 0.01  # small tolerance for numerical noise
+        # Any alpha in [0, 1/3] is an equilibrium strategy with zero
+        # exploitability, so there is no trading edge in this range.
+        nash_range_tolerance = 0.01
         in_nash_range = -nash_range_tolerance <= bluff_freq <= nash_alpha + nash_range_tolerance
 
         if in_nash_range:
@@ -289,13 +251,13 @@ class TradingSignalGenerator:
         else:
             edge = fair_spread - nash_spread
             if edge > 0:
-                signal = "BUY_SPREAD"  # spread should be wider → sell at ask, buy at bid
+                signal = "BUY_SPREAD"
                 confidence = min(edge / nash_spread, 1.0)
             else:
-                signal = "SELL_SPREAD"  # spread should be narrower → provide liquidity
+                signal = "SELL_SPREAD"
                 confidence = min(abs(edge) / nash_spread, 1.0)
 
-        # Position sizing (Kelly-inspired) — zero when in Nash range
+        # Position sizing (Kelly-inspired) - zero when in Nash range
         position_size = 0.0 if in_nash_range else self.gm.optimal_position_size(bluff_freq, bankroll=1000.0)
 
         return {
@@ -310,22 +272,17 @@ class TradingSignalGenerator:
         }
 
     def from_cfr_solver(self, solver_strategy):
-        """
-        Generate trading signals directly from a CFR solver's output.
-        This is the full pipeline: solver → equilibrium → trading signal.
-        """
+        """Generate trading signals directly from a CFR solver's output."""
         bluff_freq = solver_strategy.get("J:", {}).get("b", 1.0 / 3.0)
         signals = self.from_bluff_frequency(bluff_freq)
-
-        # Add solver-specific metadata
         signals["solver_converged"] = bluff_freq <= 0.34
         return signals
 
     def report(self, signals):
         """Print a formatted trading signal report."""
-        print(f"\n{'═' * 55}")
+        print(f"\n{'=' * 55}")
         print("  TRADING SIGNAL REPORT")
-        print(f"{'═' * 55}")
+        print(f"{'=' * 55}")
         print(f"  Observed bluff frequency:  {signals['bluff_freq']:.4f}")
         print(f"  P(informed | trade):       {signals['p_informed']:.4f}")
         print(f"  Fair spread:               {signals['fair_spread']:.4f}")
@@ -336,7 +293,7 @@ class TradingSignalGenerator:
         print(f"  Suggested position size:   {signals['position_size']:.2f}")
         if 'solver_converged' in signals:
             print(f"  Solver converged:          {'YES' if signals['solver_converged'] else 'NO'}")
-        print(f"{'═' * 55}")
+        print(f"{'=' * 55}")
 
 
 def run_isomorphism_demo():
@@ -357,18 +314,18 @@ def run_isomorphism_demo():
     gm = GlostenMilgromModel(V_L=1, V_H=3, mu=implied_mu)
     result = gm.verify_isomorphism(bluff_freq)
 
-    # Generate functional trading signals
+    # Trading signals
     signal_gen = TradingSignalGenerator(V_L=1, V_H=3)
 
     print("\n--- Signals from Nash equilibrium ---")
     nash_signals = signal_gen.from_cfr_solver(strat)
     signal_gen.report(nash_signals)
 
-    print("\n--- Signals from hypothetical over-bluffer (α=0.5) ---")
+    print("\n--- Signals from hypothetical over-bluffer (alpha=0.5) ---")
     overbluff_signals = signal_gen.from_bluff_frequency(0.5)
     signal_gen.report(overbluff_signals)
 
-    print("\n--- Signals from hypothetical under-bluffer (α=0.1) ---")
+    print("\n--- Signals from hypothetical under-bluffer (alpha=0.1) ---")
     underbluff_signals = signal_gen.from_bluff_frequency(0.1)
     signal_gen.report(underbluff_signals)
 

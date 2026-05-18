@@ -33,10 +33,10 @@ def _compute_counter_strategy(opponent_estimated_strategy, our_player):
     Args:
         opponent_estimated_strategy: dict {info_set: {action: prob}}
             estimated from the Dirichlet model
-        our_player: 0 or 1 — which player we are
+        our_player: 0 or 1 - which player we are
 
     Returns:
-        dict {info_set: {action: prob}} — the best response strategy
+        dict {info_set: {action: prob}} - the best response strategy
     """
     all_deals = list(permutations(CARDS, 2))
     infoset_action_values = defaultdict(lambda: defaultdict(float))
@@ -51,9 +51,7 @@ def _compute_counter_strategy(opponent_estimated_strategy, our_player):
     for info_set, action_vals in infoset_action_values.items():
         best_action = max(action_vals, key=action_vals.get)
         actions = list(action_vals.keys())
-        # Use softened best response: 90% best action, 10% spread over others.
-        # Pure BR is theoretically optimal but can be over-exploited if our
-        # opponent model is imperfect. Softening provides robustness.
+        # softened BR: 90/10 for robustness against model error
         br_strategy[info_set] = {}
         n_other = max(len(actions) - 1, 1)
         for a in actions:

@@ -1,12 +1,6 @@
 # tests/test_cfr_convergence.py
 """
-Rigorous Nash equilibrium convergence tests for all CFR variants.
-
-Kuhn Poker has an analytical Nash equilibrium. We verify:
-1. EXACT convergence to known values (tight tolerances)
-2. Exploitability → 0 (machine precision for sufficient iterations)
-3. Cross-validation: tree-traversal BR matches brute-force BR
-4. Convergence speed ordering: CFR+ > DCFR > Vanilla
+Nash equilibrium convergence tests for all CFR variants on Kuhn Poker.
 """
 import pytest
 from core.cfr import VanillaCFR
@@ -16,32 +10,18 @@ from core.mccfr import ExternalSamplingMCCFR
 from core.exploitability import compute_exploitability, compute_exploitability_bruteforce
 
 
-# ── Analytical Kuhn Nash Equilibrium ─────────────────────────────
+# Kuhn Nash equilibrium family, parameterized by alpha in [0, 1/3]:
 #
-# Kuhn Poker has a FAMILY of Nash equilibria parameterized by α ∈ [0, 1/3]:
+# P0: J: bet = alpha, Q: bet = 0, K: bet = 3*alpha
+#     J:cb call = 0, Q:cb call = alpha + 1/3, K:cb call = 1
 #
-# Player 0 (acts first):
-#   J:  bet with prob α (bluff)
-#   Q:  bet with prob 0 (never bet)
-#   K:  bet with prob 3α (value bet)
-#   J:cb call with prob 0 (never call a re-raise with Jack)
-#   Q:cb call with prob α + 1/3
-#   K:cb call with prob 1 (always call with King)
+# P1: J:b call = 0, Q:b call = 1/3, K:b call = 1
+#     J:c bet = 1/3, Q:c bet = 0, K:c bet = 1
 #
-# Player 1 (acts second):
-#   J:b  call with prob 0 (never call a bet with Jack)
-#   Q:b  call with prob 1/3 (always exactly 1/3)
-#   K:b  call with prob 1 (always call with King)
-#   J:c  bet with prob 1/3
-#   Q:c  bet with prob 0 (never bet as P2 with Q after check)
-#   K:c  bet with prob 1 (always bet)
-#
-# Game value: v = -1/18 ≈ -0.0556 (P0 has slight disadvantage)
-#
-# CRITICAL: P2's strategy is UNIQUE. Only P1's has the α parameter.
-# The tolerance of 0.001 here (vs previous 0.08) reflects 50000 iterations.
+# Game value: v = -1/18
+# P1's strategy is unique; only P0 has the alpha parameter.
 
-KUHN_GAME_VALUE = -1.0 / 18.0  # ≈ -0.0556
+KUHN_GAME_VALUE = -1.0 / 18.0  # ~ -0.0556
 
 
 class TestKuhnNashExact:
@@ -58,48 +38,48 @@ class TestKuhnNashExact:
     def exploitability(self, converged_strategy):
         return compute_exploitability(converged_strategy)
 
-    # ── P1 equilibrium family constraints ─────────────────────────
+    # P0 equilibrium family constraints
 
     def test_p0_queen_never_bets(self, converged_strategy):
-        """P0 should never bet with Queen (it's dominated)."""
+        """P0 should never bet with Queen (dominated)."""
         q_bet = converged_strategy["Q:"]["b"]
         assert q_bet < 0.005, f"P0 Q: bet should be ~0, got {q_bet:.6f}"
 
     def test_p0_jack_bluff_in_range(self, converged_strategy):
-        """P0 Jack bluff frequency α should be in [0, 1/3]."""
+        """P0 Jack bluff frequency alpha should be in [0, 1/3]."""
         j_bet = converged_strategy["J:"]["b"]
         assert 0.0 <= j_bet <= 0.34, (
-            f"P0 J: bluff α should be in [0, 1/3], got {j_bet:.6f}"
+            f"P0 J: bluff alpha should be in [0, 1/3], got {j_bet:.6f}"
         )
 
     def test_p0_king_bet_tracks_3alpha(self, converged_strategy):
-        """P0 K: bet probability should equal 3×α (the J: bluff rate)."""
+        """P0 K: bet probability should equal 3*alpha."""
         j_bet = converged_strategy["J:"]["b"]
         k_bet = converged_strategy["K:"]["b"]
         assert abs(k_bet - 3.0 * j_bet) < 0.01, (
-            f"K:bet={k_bet:.6f} should be 3×J:bet={3*j_bet:.6f}"
+            f"K:bet={k_bet:.6f} should be 3*J:bet={3*j_bet:.6f}"
         )
 
     def test_p0_queen_cb_call_tracks_alpha_plus_third(self, converged_strategy):
-        """P0 Q:cb call should equal α + 1/3."""
+        """P0 Q:cb call should equal alpha + 1/3."""
         j_bet = converged_strategy["J:"]["b"]
         q_call = converged_strategy["Q:cb"]["c"]
         expected = j_bet + 1.0 / 3.0
         assert abs(q_call - expected) < 0.01, (
-            f"Q:cb call={q_call:.6f} should be α+1/3={expected:.6f}"
+            f"Q:cb call={q_call:.6f} should be alpha+1/3={expected:.6f}"
         )
 
     def test_p0_king_cb_always_calls(self, converged_strategy):
-        """P0 should always call with King after check-bet."""
+        """P0 always calls with King after check-bet."""
         k_call = converged_strategy["K:cb"]["c"]
         assert k_call > 0.99, f"K:cb call should be ~1.0, got {k_call:.6f}"
 
     def test_p0_jack_cb_never_calls(self, converged_strategy):
-        """P0 should never call with Jack after check-bet."""
+        """P0 never calls with Jack after check-bet."""
         j_call = converged_strategy["J:cb"]["c"]
         assert j_call < 0.005, f"J:cb call should be ~0, got {j_call:.6f}"
 
-    # ── P2 unique equilibrium (NO free parameter) ─────────────────
+    # P1 unique equilibrium (no free parameter)
 
     def test_p1_king_always_calls_bet(self, converged_strategy):
         """P1 always calls a bet with King."""
@@ -107,7 +87,7 @@ class TestKuhnNashExact:
         assert k_call > 0.995, f"P1 K:b call should be ~1.0, got {k_call:.6f}"
 
     def test_p1_queen_calls_exactly_one_third(self, converged_strategy):
-        """P1 calls a bet with Queen at exactly 1/3 (this is UNIQUE)."""
+        """P1 calls a bet with Queen at exactly 1/3 (unique)."""
         q_call = converged_strategy["Q:b"]["c"]
         assert abs(q_call - 1.0 / 3.0) < 0.01, (
             f"P1 Q:b call should be exactly 1/3={1/3:.6f}, got {q_call:.6f}"
@@ -124,7 +104,7 @@ class TestKuhnNashExact:
         assert k_bet > 0.99, f"P1 K:c bet should be ~1.0, got {k_bet:.6f}"
 
     def test_p1_jack_bets_one_third_after_check(self, converged_strategy):
-        """P1 bets (bluffs) with Jack 1/3 of the time after check."""
+        """P1 bluffs with Jack 1/3 of the time after check."""
         j_bet = converged_strategy["J:c"]["b"]
         assert abs(j_bet - 1.0 / 3.0) < 0.01, (
             f"P1 J:c bet should be 1/3={1/3:.6f}, got {j_bet:.6f}"
@@ -135,7 +115,7 @@ class TestKuhnNashExact:
         q_bet = converged_strategy["Q:c"]["b"]
         assert q_bet < 0.01, f"P1 Q:c bet should be ~0, got {q_bet:.6f}"
 
-    # ── Exploitability ────────────────────────────────────────────
+    # Exploitability
 
     def test_exploitability_near_zero(self, exploitability):
         """Exploitability should be < 0.001 at 50k iterations."""
@@ -144,7 +124,7 @@ class TestKuhnNashExact:
         )
 
     def test_exploitability_nonnegative(self, exploitability):
-        """Exploitability is always ≥ 0 by definition."""
+        """Exploitability >= 0 by definition."""
         assert exploitability >= -1e-10, (
             f"Exploitability cannot be negative, got {exploitability:.6f}"
         )

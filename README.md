@@ -1,20 +1,12 @@
 # GTO Poker Bot
 
-A Python framework for computing, validating, and exploiting approximate Nash equilibria in imperfect-information games - with an interactive game engine, scalable exploitability computation, and a formal bridge to market microstructure theory.
+A Python framework for computing, validating, and exploiting approximate Nash equilibria in imperfect-information games, with an interactive game engine, scalable exploitability computation, and a bridge to market microstructure theory.
 
 ---
 
 ## What This Does
 
-1. **Solve** - Four CFR-family algorithms compute Nash-approximate strategies for Kuhn Poker (12 info sets) and **Leduc Poker (~936 info sets)**, with measurable convergence guarantees and exploitability tracking.
-
-2. **Validate** - Exploitability is computed via **tree-traversal best response** (O(game tree)), not brute-force enumeration. This scales to any game size. Cross-validated against brute-force on Kuhn for correctness.
-
-3. **Play** - An **interactive CLI game engine** wires together the CFR solver, Bayesian opponent model, SPRT leak detector, and confidence-gated strategy mixer into an actual poker bot you can play against. The bot observes your patterns in real-time and exploits detected leaks.
-
-4. **Adapt** - A Bayesian opponent model detects when an opponent leaks exploitable patterns and gates strategy mixing based on statistical confidence (posterior variance + SPRT), not raw deviation.
-
-5. **Trade** - The Glosten-Milgrom module is **functional, not decorative**: it generates actionable trading signals, position sizes, and edge estimates from CFR equilibrium output, with explicit documentation of where the Kuhn ↔ GM analogy breaks down.
+Four CFR-family algorithms compute Nash-approximate strategies for Kuhn Poker (12 info sets) and Leduc Poker (~936 info sets). Exploitability is measured via tree-traversal best response, cross-validated against brute-force on Kuhn. An interactive CLI game engine wires together the solver, Bayesian opponent model, SPRT leak detector, and confidence-gated strategy mixer into a playable poker bot that adapts to opponent patterns in real time. The Glosten-Milgrom module maps CFR equilibrium output to trading signals, position sizes, and spread estimates, with documentation of where the Kuhn-GM analogy breaks down.
 
 ---
 
@@ -37,7 +29,7 @@ All four solvers are benchmarked against each other on both Kuhn and Leduc.
 The textbook game - 3 cards, 2 players. Analytical Nash equilibrium is known and verified to machine precision.
 
 ### Leduc Poker (~936 info sets)
-A significantly larger game - 6 cards (2 each of J, Q, K), 2 betting rounds, community card, raises. The CFR+ solver converges with verified exploitability decrease. **Fully tested and in CI.**
+A significantly larger game - 6 cards (2 each of J, Q, K), 2 betting rounds, community card, raises. The CFR+ solver converges with verified exploitability decrease. Fully tested and in CI.
 
 ---
 
@@ -65,22 +57,22 @@ python core/game_engine.py --iters 100000    # more training iterations
 
 ## Exploitability
 
-Exploitability is computed using **tree-traversal best response** - O(|game tree| × |deals|), not O(2^|info sets|).
+Exploitability is computed using tree-traversal best response - O(|game tree| x |deals|), not O(2^|info sets|).
 
 The algorithm:
 1. **Accumulate**: Walk the tree for each deal, summing action values per information set
 2. **Maximize**: At each info set, pick the action with highest accumulated value
 3. **Evaluate**: Re-traverse using the constructed best-response strategy
 
-This correctly respects imperfect-information constraints (the BR player cannot see the opponent's private card). Cross-validated against brute-force enumeration on Kuhn.
+This respects imperfect-information constraints (the BR player cannot see the opponent's private card). Cross-validated against brute-force enumeration on Kuhn.
 
-A **game-agnostic** `compute_exploitability_generic()` function works for any game implementing the standard interface.
+A game-agnostic `compute_exploitability_generic()` function works for any game implementing the standard interface.
 
 ---
 
 ## Opponent Modeling
 
-Four components work together **in a live game loop**:
+Four components work together in the game loop:
 
 **Dirichlet Posterior Model** - maintains a per-infoset Bayesian posterior over opponent action frequencies. Reports posterior mean, credible intervals, KL divergence from Nash, and posterior variance.
 
@@ -94,7 +86,7 @@ Four components work together **in a live game loop**:
 
 ## Glosten-Milgrom Isomorphism
 
-The `trading/` module formalizes the Kuhn ↔ GM (1985) correspondence:
+The `trading/` module formalizes the Kuhn-GM (1985) correspondence:
 
 | Poker | Market |
 |---|---|
@@ -102,9 +94,9 @@ The `trading/` module formalizes the Kuhn ↔ GM (1985) correspondence:
 | Player 2 with no private info | Market maker |
 | Bluffing with Jack (weak hand) | Noise trader submitting buy order |
 | Always betting King (strong hand) | Informed trader buying at V_H |
-| Nash bluff frequency α | Adverse selection component of bid-ask spread |
+| Nash bluff frequency alpha | Adverse selection component of bid-ask spread |
 
-### Functional Trading Output
+### Trading Output
 
 The `TradingSignalGenerator` produces:
 - **Fair spread** from observed bluff frequency
@@ -112,7 +104,7 @@ The `TradingSignalGenerator` produces:
 - **Trading signals**: BUY_SPREAD / SELL_SPREAD / HOLD
 - **Position sizing** (Kelly-inspired, half-Kelly for safety)
 
-### Known Limitations (explicitly documented in code and tests)
+### Known Limitations
 
 1. **Discrete vs continuous values** - 3 cards vs continuous price processes
 2. **Single period vs dynamic** - no time-varying spreads or inventory accumulation
@@ -120,7 +112,7 @@ The `TradingSignalGenerator` produces:
 4. **No multi-asset correlation** - single-asset model, no cross-asset leakage
 5. **Adverse selection only** - no latency arbitrage, market impact, or maker-taker effects
 
-Each limitation is **tested** in `tests/test_trading.py::TestGMLimitations`.
+Each limitation is tested in `tests/test_trading.py::TestGMLimitations`.
 
 ---
 
@@ -179,7 +171,7 @@ pip install -r requirements-dev.txt
 python core/game_engine.py
 ```
 
-### Full validation pipeline (12 gates)
+### Full validation pipeline
 ```bash
 python notebooks/run_everything.py
 ```
@@ -198,7 +190,7 @@ python trading/glosten_milgrom.py
 
 ## Testing
 
-**117 tests** across 6 test files, all using proper pytest:
+117 tests across 6 test files:
 
 | Test File | Coverage |
 |---|---|
@@ -212,11 +204,11 @@ python trading/glosten_milgrom.py
 ### Key Verification Properties
 
 - **Exact Nash values**: P1 Q:b call = exactly 1/3, P1 J:c bet = exactly 1/3 (tolerance: 0.01)
-- **Equilibrium family**: K:bet = 3×J:bet, Q:cb call = J:bet + 1/3
+- **Equilibrium family**: K:bet = 3xJ:bet, Q:cb call = J:bet + 1/3
 - **Zero-sum**: all terminal payoffs satisfy P0 + P1 = 0
 - **Cross-validation**: tree-traversal exploitability matches brute-force to 0.002
 - **Convergence ordering**: CFR+ < DCFR < Vanilla at same iteration count
-- **Exploitability decrease**: more iterations → lower exploitability (both Kuhn and Leduc)
+- **Exploitability decrease**: more iterations -> lower exploitability (both Kuhn and Leduc)
 
 ---
 
@@ -224,7 +216,7 @@ python trading/glosten_milgrom.py
 
 GitHub Actions runs on every push/PR against Python 3.11 and 3.12:
 - Full pytest suite (all 6 test files, including Leduc)
-- 12-gate validation pipeline
+- Validation pipeline
 - Game engine import verification
 - Syntax check on all Python modules
 
@@ -232,13 +224,13 @@ GitHub Actions runs on every push/PR against Python 3.11 and 3.12:
 
 ## Technical Notes
 
-**Kuhn equilibrium family.** Kuhn Poker admits a continuum of P0 equilibria parameterized by bluff frequency α ∈ [0, 1/3]. P1's strategy is unique. Tests verify membership in the equilibrium family using exact relationships, not loose structural checks.
+**Kuhn equilibrium family.** Kuhn Poker admits a continuum of P0 equilibria parameterized by bluff frequency alpha in [0, 1/3]. P1's strategy is unique. Tests verify membership in the equilibrium family using exact relationships, not loose structural checks.
 
-**Scalable exploitability.** The tree-traversal best response works for any game size. The brute-force method is kept explicitly labeled as O(2^|info_sets|) legacy code for cross-validation only.
+**Scalable exploitability.** The tree-traversal best response works for any game size. The brute-force method is O(2^|info_sets|) legacy kept for cross-validation only.
 
 **Leduc Poker.** Fully implemented with CFR+ solver, game interface for generic exploitability, and comprehensive test coverage. Not experimental - in CI.
 
-**GM limitations.** The code explicitly documents and tests where the Kuhn ↔ GM analogy breaks down: continuous values, dynamic pricing, inventory risk, multi-asset correlation, and non-adverse-selection microstructure effects.
+**GM limitations.** The code documents and tests where the Kuhn-GM analogy breaks down: continuous values, dynamic pricing, inventory risk, multi-asset correlation, and non-adverse-selection microstructure effects.
 
 ---
 

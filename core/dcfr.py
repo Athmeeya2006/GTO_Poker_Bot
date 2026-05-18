@@ -89,12 +89,7 @@ class DCFR:
             for cards in permutations(CARDS, 2):
                 self._cfr(list(cards), "", 1.0, 1.0)
 
-            # Apply discounting AFTER traversal (Brown & Sandholm 2019).
-            # This discounts the accumulated regrets from all PREVIOUS
-            # iterations before the next iteration uses them. Discounting
-            # before traversal would cause the current iteration's strategy
-            # to be computed from already-discounted regrets, shifting the
-            # discount schedule off by one step.
+            # discount after traversal, not before - see Brown & Sandholm 2019
             for i_set in list(self.regrets.keys()):
                 actions = list(self.regrets[i_set].keys())
                 self._discount_regrets(i_set, actions)
