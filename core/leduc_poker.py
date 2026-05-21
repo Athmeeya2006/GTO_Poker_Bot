@@ -10,7 +10,7 @@ Rules:
 - Round 2: bet size 4, max 1 raise per round
 - Showdown: pair with community card beats no pair; higher card breaks ties
 
-This is a significantly larger game than Kuhn (~936 info sets vs 12),
+This is a significantly larger game than Kuhn (288 info sets vs 12),
 making it the real scaling test for CFR algorithms.
 """
 from collections import defaultdict
